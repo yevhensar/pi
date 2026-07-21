@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aerial-car-detector"
+version = "0.1.0"
+description = "Faster R-CNN vehicle detection for top-down aerial photos"
+requires-python = ">=3.10"
+dependencies = [
+    "lightning>=2.5",
+    "pillow>=10",
+    "torch>=2.2",
+    "torchdata>=0.11",
+    "torchvision>=0.17",
+]
+
+[project.optional-dependencies]
+api = ["fastapi>=0.110", "python-multipart>=0.0.9", "uvicorn>=0.29"]
+dev = ["pytest>=8", "ruff>=0.4"]
+
+[tool.setuptools]
+py-modules = ["dataset", "detector", "evaluate", "modeling", "predict", "service", "train"]
+package-dir = {"" = "src"}
+
+[tool.ruff]
+line-length = 100
