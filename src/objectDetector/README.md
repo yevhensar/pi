@@ -159,18 +159,40 @@ thresholds.
 
 ## API
 
+Install the API dependencies and start the server from the project directory. The server
+uses `outputs/fasterrcnn/checkpoints/last.ckpt` by default:
+
 ```bash
-MODEL_PATH=outputs/fasterrcnn/checkpoints/last.ckpt \
-DEVICE=cpu \
-uvicorn service:app --app-dir src --port 8000
+pip install -e '.[api]'
+DEVICE=cpu uvicorn service:app --app-dir src --port 8000
 ```
+
+Use `DEVICE=cuda:0` to run inference on the first NVIDIA GPU. The interactive API docs
+are available at `http://localhost:8000/docs`.
 
 Send an image as multipart form data:
 
 ```bash
 curl -F file=@photos/istockphoto-1413970631-1024x1024.jpg \
-  http://localhost:8000/detect
+  http://localhost:8000/api/detect
 ```
+
+The response contains `car_present`, the detection count, confidence scores, and bounding
+box coordinates.
+
+## React client
+
+In a second terminal, start the upload interface:
+
+```bash
+cd client
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173`. The Vite development server proxies `/api` requests to the
+API on port 8000. To use an API hosted elsewhere, set `VITE_API_URL` to its complete
+detect endpoint before starting or building the client.
 
 ## Custom data
 

@@ -1,0 +1,44 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Mono:wght@700&display=swap");
+
+:root { font-family: "DM Sans", sans-serif; color: #eaf5ee; background: #09130f; font-synthesis: none; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: radial-gradient(circle at 75% 15%, #183526 0, transparent 32%), #09130f; }
+body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opacity: .08; background-image: linear-gradient(#8dbda4 1px, transparent 1px), linear-gradient(90deg, #8dbda4 1px, transparent 1px); background-size: 52px 52px; mask-image: linear-gradient(to bottom, black, transparent 65%); }
+button, input { font: inherit; }
+main { width: min(1100px, calc(100% - 40px)); margin: 0 auto; padding: 72px 0 80px; position: relative; }
+header { max-width: 760px; margin-bottom: 38px; }
+.eyebrow { font: 700 12px/1 "Space Mono", monospace; letter-spacing: .18em; color: #74efa7; display: flex; align-items: center; gap: 10px; }
+.eyebrow span { width: 28px; height: 2px; background: #74efa7; }
+h1 { font-size: clamp(48px, 8vw, 92px); line-height: .94; letter-spacing: -.065em; margin: 24px 0; font-weight: 600; }
+header p { color: #9fb4a7; max-width: 590px; font-size: 18px; line-height: 1.6; }
+.workspace { background: rgba(17, 34, 26, .82); border: 1px solid #284638; padding: 18px; box-shadow: 0 28px 80px #0008; backdrop-filter: blur(14px); }
+.dropzone { min-height: 360px; border: 1px dashed #47715b; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; transition: .2s ease; background: #0d1c15aa; }
+.dropzone:hover, .dropzone.dragging { border-color: #74efa7; background: #12291ddd; transform: translateY(-2px); }
+.dropzone input { display: none; }
+.upload-icon { border: 1px solid #3f6652; color: #74efa7; width: 66px; height: 66px; display: grid; place-items: center; font-size: 35px; margin-bottom: 22px; }
+.dropzone strong { font-size: 22px; }
+.dropzone span { color: #7e9588; margin-top: 8px; }
+.preview { position: relative; min-height: 260px; display: grid; place-items: center; overflow: hidden; background: #050b08; }
+.preview img, .preview canvas { display: block; max-width: 100%; max-height: 68vh; width: auto; height: auto; }
+.preview canvas { display: none; }
+.preview canvas.visible { display: block; }
+.preview canvas.visible + .scanning, .preview canvas.visible ~ img { display: none; }
+.preview:has(canvas.visible) > img { display: none; }
+.scanning { position: absolute; inset: 0; background: linear-gradient(to bottom, transparent 45%, #74efa744 50%, transparent 55%); background-size: 100% 180%; animation: scan 1.3s linear infinite; display: grid; place-items: center; }
+.scanning span { background: #09130fe6; border: 1px solid #74efa7; color: #74efa7; font: 700 11px "Space Mono", monospace; letter-spacing: .16em; padding: 10px 14px; }
+@keyframes scan { to { background-position: 0 180%; } }
+.actions { display: flex; justify-content: flex-end; gap: 12px; padding-top: 18px; }
+button { border: 0; padding: 13px 22px; cursor: pointer; font-weight: 700; transition: .15s; }
+button:disabled { cursor: wait; opacity: .55; }
+.primary { background: #74efa7; color: #07140d; }
+.primary:hover:not(:disabled) { background: #a2ffc7; transform: translateY(-1px); }
+.secondary { background: transparent; border: 1px solid #3a5748; color: #c7d9ce; }
+.error { color: #ff96a1; background: #3b171d; border-left: 3px solid #ff5265; padding: 12px 15px; margin-top: 14px; }
+.result { margin-top: 18px; border: 1px solid #29483a; background: #102219; padding: 24px; display: flex; align-items: center; gap: 18px; }
+.result-mark { flex: 0 0 50px; width: 50px; height: 50px; display: grid; place-items: center; border: 1px solid currentColor; font-size: 24px; }
+.result.positive { color: #74efa7; }
+.result.clear { color: #a9b9b0; }
+.result span { font: 700 10px "Space Mono", monospace; letter-spacing: .16em; }
+.result h2 { color: #edf8f1; margin: 5px 0 2px; font-size: 25px; }
+.result p { color: #8fa397; margin: 0; }
+@media (max-width: 600px) { main { width: min(100% - 24px, 1100px); padding-top: 42px; } .workspace { padding: 10px; } .dropzone { min-height: 280px; } .actions { flex-direction: column-reverse; } button { width: 100%; } }
