@@ -3,9 +3,9 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "aerial-car-detector"
+name = "aerial-object-detector"
 version = "0.1.0"
-description = "Faster R-CNN vehicle detection for top-down aerial photos"
+description = "Extensible object detection for aerial photos"
 requires-python = ">=3.10"
 dependencies = [
     "lightning>=2.5",
@@ -19,9 +19,14 @@ dependencies = [
 api = ["fastapi>=0.110", "python-multipart>=0.0.9", "uvicorn>=0.29"]
 dev = ["pytest>=8", "ruff>=0.4"]
 
-[tool.setuptools]
-py-modules = ["dataset", "detector", "evaluate", "modeling", "predict", "service", "train"]
-package-dir = {"" = "src"}
+[project.scripts]
+object-detect = "object_detector.cli.predict:main"
+object-evaluate = "object_detector.cli.evaluate:main"
+object-train = "object_detector.cli.train:main"
+prepare-visdrone = "object_detector.datasets.prepare_visdrone:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.ruff]
 line-length = 100

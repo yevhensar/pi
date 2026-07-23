@@ -9,11 +9,11 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.callbacks.progress import TQDMProgressBar
 from torchdata.stateful_dataloader import StatefulDataLoader
 
-from dataset import YoloVehicleDataset, detection_collate
-from modeling import VehicleDetectorModule
+from object_detector.datasets import YoloDetectionDataset, detection_collate
+from object_detector.models.faster_rcnn import FasterRCNNModule
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 class KnownTotalProgressBar(TQDMProgressBar):
@@ -64,6 +64,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch", type=int, default=2)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--learning-rate", type=float, default=0.005)
+    parser.add_argument(
+        "--classes", type=int, default=1, help="Number of foreground classes in the dataset"
+    )
     parser.add_argument(
         "--checkpoint-every",
         type=int,
@@ -145,8 +148,8 @@ def main() -> None:
     if args.force:
         completion_marker.unlink(missing_ok=True)
 
-    train_dataset = YoloVehicleDataset(data_dir, "train", augment=True)
-    val_dataset = YoloVehicleDataset(data_dir, "val")
+    train_dataset = YoloDetectionDataset(data_dir, "train", augment=True)
+    val_dataset = YoloDetectionDataset(data_dir, "val")
     train_loader = StatefulDataLoader(
         train_dataset,
         batch_size=args.batch,
@@ -208,13 +211,15 @@ def main() -> None:
         )
         # The original run used Torchvision's pretrained detector, whose backbone uses
         # FrozenBatchNorm. Recreate the same architecture before restoring its state.
-        model = VehicleDetectorModule(pretrained=True)
+        model = FasterRCNNModule(pretrained=True, num_classes=args.classes)
     else:
         print(
             f"Starting {args.epochs} epochs with {len(train_loader)} training batches "
             f"and {len(val_loader)} validation batches per epoch"
         )
-        model = VehicleDetectorModule(learning_rate=args.learning_rate)
+        model = FasterRCNNModule(
+            learning_rate=args.learning_rate, num_classes=args.classes
+        )
 
     trainer.fit(model, train_loader, val_loader, ckpt_path=resume_from)
     trainer.save_checkpoint(last_checkpoint)

@@ -1,8 +1,8 @@
-# Aerial vehicle detector
+# Aerial object detector
 
-Faster R-CNN vehicle detection for aerial photos, trained with PyTorch Lightning and
-Torchvision. Training saves resumable checkpoints during an epoch instead of waiting for
-the complete epoch.
+Extensible object detection for aerial photos. The current Faster R-CNN vehicle model is
+one registered backend; shared inference, API, dataset, and CLI contracts are ready for
+additional model families and object classes.
 
 Run all commands below from this directory:
 
@@ -36,13 +36,42 @@ python -c "import torch; print(torch.cuda.is_available())"
 Install the matching CUDA build of PyTorch first if the machine has an NVIDIA GPU but
 this prints `False`.
 
+## Project structure
+
+```text
+src/object_detector/
+├── api/                  # HTTP transport only
+├── cli/                  # train, predict, and evaluate commands
+├── core/                 # backend-neutral detector and result types
+├── datasets/             # YOLO loader and dataset preparation
+├── models/
+│   └── faster_rcnn/      # current model adapter and Lightning module
+└── registry.py           # model backend discovery and construction
+```
+
+To onboard another inference model, implement `BaseDetector`, then register its factory:
+
+```python
+from object_detector import register_detector
+from my_detector import MyDetector
+
+register_detector("my-model", MyDetector)
+```
+
+The factory receives backend options such as `model_path`, `device`, and `confidence`.
+Call `create_detector("my-model", ...)` from an integration, or add the implementation
+to `_register_builtins()` to expose it through `--backend` and `MODEL_BACKEND` by default.
+Every backend returns the same `Detection` objects, so the API and UI need no model-specific
+changes. Set `CLASS_NAMES=person,bicycle,...` for a multi-class API checkpoint, and train a
+multi-class Faster R-CNN checkpoint with `object-train --classes N`.
+
 ## Prepare VisDrone
 
 The preparation script downloads VisDrone2019-DET and combines its `car`, `van`, `truck`,
 and `bus` categories into one `vehicle` class:
 
 ```bash
-python src/prepare_visdrone.py
+prepare-visdrone
 ```
 
 The command is safe to run repeatedly. Completed splits are skipped before downloading.
@@ -57,13 +86,13 @@ converts them to pixel bounding boxes in memory. Ultralytics is not required.
 CPU training with a checkpoint every 100 optimizer steps:
 
 ```bash
-python src/train.py --device cpu --batch 2 --checkpoint-every 100
+object-train --device cpu --batch 2 --checkpoint-every 100
 ```
 
 Training on the first NVIDIA GPU:
 
 ```bash
-python src/train.py --device 0 --batch 4 --checkpoint-every 100
+object-train --device 0 --batch 4 --checkpoint-every 100
 ```
 
 The first fresh run downloads Torchvision's pretrained Faster R-CNN MobileNetV3-FPN
@@ -79,7 +108,7 @@ Run the same command after an interruption. If `last.ckpt` exists, Lightning res
 model, optimizer, learning-rate scheduler, epoch, and training step:
 
 ```bash
-python src/train.py --device cpu --batch 2 --checkpoint-every 100
+object-train --device cpu --batch 2 --checkpoint-every 100
 ```
 
 At most the batches since the most recent checkpoint need to be repeated. Lower
@@ -107,7 +136,7 @@ After successful completion, another invocation skips training. To intentionally
 new run from the pretrained backbone:
 
 ```bash
-python src/train.py --device cpu --batch 2 --force
+object-train --device cpu --batch 2 --force
 ```
 
 The previous Ultralytics checkpoint, if any, is incompatible with Faster R-CNN. Prepared
@@ -118,7 +147,7 @@ images and labels are fully reusable.
 Run overlapping tiled inference on one image:
 
 ```bash
-python src/predict.py \
+object-detect \
   photos/istockphoto-1413970631-1024x1024.jpg \
   --model outputs/fasterrcnn/checkpoints/last.ckpt \
   --device cpu
@@ -134,7 +163,7 @@ outputs/annotated.jpg
 Optional inference controls:
 
 ```bash
-python src/predict.py IMAGE \
+object-detect IMAGE \
   --model CHECKPOINT \
   --confidence 0.35 \
   --slice-size 512 \
@@ -146,7 +175,7 @@ python src/predict.py IMAGE \
 First run a short smoke evaluation:
 
 ```bash
-python src/evaluate.py \
+object-evaluate \
   --model outputs/fasterrcnn/checkpoints/last.ckpt \
   --split test \
   --device cpu \
@@ -164,7 +193,7 @@ uses `outputs/fasterrcnn/checkpoints/last.ckpt` by default:
 
 ```bash
 pip install -e '.[api]'
-DEVICE=cpu uvicorn service:app --app-dir src --port 8000
+DEVICE=cpu uvicorn object_detector.api.app:app --port 8000
 ```
 
 Use `DEVICE=cuda:0` to run inference on the first NVIDIA GPU. The interactive API docs
@@ -177,8 +206,8 @@ curl -F file=@photos/istockphoto-1413970631-1024x1024.jpg \
   http://localhost:8000/api/detect
 ```
 
-The response contains `car_present`, the detection count, confidence scores, and bounding
-box coordinates.
+The response contains `object_present`, the detection count, class names, confidence
+scores, and bounding boxes. `car_present` remains as a deprecated compatibility alias.
 
 ## React client
 
@@ -206,7 +235,7 @@ data/labels/{train,val,test}/image-name.txt
 Train with:
 
 ```bash
-python src/train.py --data-dir data
+object-train --data-dir data
 ```
 
 Split by flight, date, or location rather than randomly splitting neighboring photos.

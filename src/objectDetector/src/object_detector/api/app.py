@@ -10,11 +10,12 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image, UnidentifiedImageError
 
-from detector import CarDetector
+from object_detector.core.detector import BaseDetector
+from object_detector.registry import create_detector
 
 
-detector: CarDetector | None = None
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+detector: BaseDetector | None = None
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_MODEL_PATH = PROJECT_ROOT / "outputs/fasterrcnn/checkpoints/last.ckpt"
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
@@ -22,16 +23,21 @@ MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     global detector
-    detector = CarDetector(
-        os.getenv("MODEL_PATH", str(DEFAULT_MODEL_PATH)),
+    class_names = tuple(
+        name.strip() for name in os.getenv("CLASS_NAMES", "vehicle").split(",") if name.strip()
+    )
+    detector = create_detector(
+        os.getenv("MODEL_BACKEND", "faster-rcnn"),
+        model_path=os.getenv("MODEL_PATH", str(DEFAULT_MODEL_PATH)),
         device=os.getenv("DEVICE", "cpu"),
         confidence=float(os.getenv("CONFIDENCE", "0.25")),
+        class_names=class_names,
     )
     yield
     detector = None
 
 
-app = FastAPI(title="Aerial Car Detector", lifespan=lifespan)
+app = FastAPI(title="Object Detector", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -52,7 +58,7 @@ def health() -> dict[str, str]:
 
 
 @app.post("/api/detect")
-async def detect_cars(file: UploadFile = File(...)) -> dict:
+async def detect_objects(file: UploadFile = File(...)) -> dict:
     if detector is None:
         raise HTTPException(status_code=503, detail="Model is not loaded")
 
@@ -79,13 +85,15 @@ async def detect_cars(file: UploadFile = File(...)) -> dict:
 
     count = len(detections)
     return {
+        "object_present": count > 0,
+        # Deprecated compatibility field for the original car-detector client.
         "car_present": count > 0,
         "count": count,
-        "detections": detections,
+        "detections": [detection.to_dict() for detection in detections],
     }
 
 
 # Keep the original endpoint available for existing scripts and integrations.
 @app.post("/detect", include_in_schema=False)
 async def detect_cars_legacy(file: UploadFile = File(...)) -> dict:
-    return await detect_cars(file)
+    return await detect_objects(file)

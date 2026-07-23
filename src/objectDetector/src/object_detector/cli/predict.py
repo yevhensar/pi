@@ -4,13 +4,14 @@ import argparse
 import json
 from pathlib import Path
 
-from detector import CarDetector
+from object_detector.registry import create_detector
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Detect cars in a top-down photo")
+    parser = argparse.ArgumentParser(description="Detect objects in an image")
     parser.add_argument("image", type=Path)
     parser.add_argument("--model", type=Path, default=Path("models/last.ckpt"))
+    parser.add_argument("--backend", default="faster-rcnn", help="Registered model backend")
     parser.add_argument("--device", default="cpu", help="Use cpu, cuda:0, mps, etc.")
     parser.add_argument("--confidence", type=float, default=0.25)
     parser.add_argument("--slice-size", type=int, default=512)
@@ -27,8 +28,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    detector = CarDetector(
-        args.model,
+    detector = create_detector(
+        args.backend,
+        model_path=args.model,
         device=args.device,
         confidence=args.confidence,
         slice_size=args.slice_size,
@@ -37,7 +39,10 @@ def main() -> None:
     detections = detector.predict(args.image)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(detections, indent=2) + "\n", encoding="utf-8")
+    args.output.write_text(
+        json.dumps([detection.to_dict() for detection in detections], indent=2) + "\n",
+        encoding="utf-8",
+    )
     if args.annotated_output:
         detector.save_annotated(args.image, detections, args.annotated_output)
     print(f"Found {len(detections)} object(s); wrote {args.output}")

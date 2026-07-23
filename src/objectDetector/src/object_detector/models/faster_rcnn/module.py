@@ -9,10 +9,12 @@ from torchvision.models.detection import (
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 
 
-class VehicleDetectorModule(L.LightningModule):
+class FasterRCNNModule(L.LightningModule):
     """Lightning wrapper around a two-class Torchvision Faster R-CNN model."""
 
-    def __init__(self, learning_rate: float = 0.005, pretrained: bool = True) -> None:
+    def __init__(
+        self, learning_rate: float = 0.005, pretrained: bool = True, num_classes: int = 1
+    ) -> None:
         super().__init__()
         self.save_hyperparameters()
         weights = FasterRCNN_MobileNet_V3_Large_FPN_Weights.DEFAULT if pretrained else None
@@ -23,7 +25,7 @@ class VehicleDetectorModule(L.LightningModule):
             max_size=1333,
         )
         input_features = self.detector.roi_heads.box_predictor.cls_score.in_features
-        self.detector.roi_heads.box_predictor = FastRCNNPredictor(input_features, 2)
+        self.detector.roi_heads.box_predictor = FastRCNNPredictor(input_features, num_classes + 1)
 
     def forward(self, images: list[torch.Tensor]):
         return self.detector(images)

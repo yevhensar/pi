@@ -15,11 +15,11 @@ function drawResult(canvas, image, detections) {
   context.fillStyle = "#ff3d52";
   context.font = `700 ${fontSize}px Inter, sans-serif`;
 
-  detections.forEach(({ box, confidence }, index) => {
+  detections.forEach(({ box, confidence, class: className }, index) => {
     const width = box.x2 - box.x1;
     const height = box.y2 - box.y1;
     context.strokeRect(box.x1, box.y1, width, height);
-    const label = `CAR ${Math.round(confidence * 100)}%`;
+    const label = `${className.toUpperCase()} ${Math.round(confidence * 100)}%`;
     const labelWidth = context.measureText(label).width + 12;
     const labelY = Math.max(0, box.y1 - fontSize - 8);
     context.fillRect(box.x1, labelY, labelWidth, fontSize + 8);
@@ -87,9 +87,9 @@ export default function App() {
   return (
     <main>
       <header>
-        <div className="eyebrow"><span /> VEHICLE VISION</div>
-        <h1>Find every car<br />from above.</h1>
-        <p>Upload an aerial photo. The trained detector will locate vehicles and draw a box around each one.</p>
+        <div className="eyebrow"><span /> OBJECT VISION</div>
+        <h1>Find objects<br />from above.</h1>
+        <p>Upload an aerial photo. The configured model will locate objects and draw a box around each one.</p>
       </header>
 
       <section className="workspace">
@@ -128,19 +128,19 @@ export default function App() {
           <div className="actions">
             <button className="secondary" onClick={reset} disabled={loading}>Choose another</button>
             <button className="primary" onClick={detect} disabled={loading}>
-              {loading ? "Detecting…" : "Detect cars"}
+              {loading ? "Detecting…" : "Detect objects"}
             </button>
           </div>
         )}
       </section>
 
       {result && (
-        <section className={`result ${result.car_present ? "positive" : "clear"}`}>
-          <div className="result-mark">{result.car_present ? "✓" : "○"}</div>
+        <section className={`result ${result.object_present ? "positive" : "clear"}`}>
+          <div className="result-mark">{result.object_present ? "✓" : "○"}</div>
           <div>
             <span>DETECTION COMPLETE</span>
-            <h2>{result.car_present ? `${result.count} ${result.count === 1 ? "car" : "cars"} detected` : "No cars detected"}</h2>
-            <p>{result.car_present ? "Detected vehicles are marked with red rectangles." : "No detection passed the confidence threshold."}</p>
+            <h2>{result.object_present ? `${result.count} ${result.count === 1 ? "object" : "objects"} detected` : "No objects detected"}</h2>
+            <p>{result.object_present ? "Detected objects are marked with red rectangles." : "No detection passed the confidence threshold."}</p>
           </div>
         </section>
       )}

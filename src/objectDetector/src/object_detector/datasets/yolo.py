@@ -11,8 +11,8 @@ from torch.utils.data import Dataset
 from torchvision.transforms.functional import pil_to_tensor
 
 
-class YoloVehicleDataset(Dataset):
-    """Read one-class YOLO labels and return Torchvision detection targets."""
+class YoloDetectionDataset(Dataset):
+    """Read YOLO labels and return Torchvision detection targets."""
 
     def __init__(self, root: str | Path, split: str, *, augment: bool = False) -> None:
         self.root = Path(root)
@@ -48,6 +48,7 @@ class YoloVehicleDataset(Dataset):
         height, width = image.shape[-2:]
 
         boxes: list[list[float]] = []
+        labels: list[int] = []
         label_path = self.label_dir / f"{image_path.stem}.txt"
         if label_path.exists():
             for line_number, line in enumerate(
@@ -60,7 +61,7 @@ class YoloVehicleDataset(Dataset):
                     )
                     continue
                 try:
-                    _, center_x, center_y, box_width, box_height = map(float, fields)
+                    class_id, center_x, center_y, box_width, box_height = map(float, fields)
                 except ValueError:
                     warnings.warn(
                         f"Ignoring non-numeric label {label_path}:{line_number}", stacklevel=2
@@ -76,6 +77,11 @@ class YoloVehicleDataset(Dataset):
                         f"Ignoring non-positive box {label_path}:{line_number}", stacklevel=2
                     )
                     continue
+                if not class_id.is_integer() or class_id < 0:
+                    warnings.warn(
+                        f"Ignoring invalid class ID {label_path}:{line_number}", stacklevel=2
+                    )
+                    continue
                 center_x *= width
                 center_y *= height
                 box_width *= width
@@ -88,6 +94,8 @@ class YoloVehicleDataset(Dataset):
                         min(float(height), center_y + box_height / 2),
                     ]
                 )
+                # YOLO classes are zero-based; Torchvision reserves zero for background.
+                labels.append(int(class_id) + 1)
 
         box_tensor = torch.tensor(boxes, dtype=torch.float32).reshape(-1, 4)
         if self.augment and random.random() < 0.5:
@@ -105,8 +113,7 @@ class YoloVehicleDataset(Dataset):
 
         target = {
             "boxes": box_tensor,
-            # Torchvision reserves class 0 for the background.
-            "labels": torch.ones(len(box_tensor), dtype=torch.int64),
+            "labels": torch.tensor(labels, dtype=torch.int64),
             "image_id": torch.tensor(index, dtype=torch.int64),
             "area": (
                 (box_tensor[:, 2] - box_tensor[:, 0])

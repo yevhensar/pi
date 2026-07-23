@@ -6,11 +6,11 @@ from pathlib import Path
 
 import torch
 
-from dataset import YoloVehicleDataset
-from detector import CarDetector
+from object_detector.datasets import YoloDetectionDataset
+from object_detector.registry import create_detector
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 def parse_args() -> argparse.Namespace:
@@ -18,6 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model", type=Path, default=Path("outputs/fasterrcnn/checkpoints/last.ckpt")
     )
+    parser.add_argument("--backend", default="faster-rcnn", help="Registered model backend")
     parser.add_argument(
         "--data-dir", type=Path, default=Path("data/VisDrone/processed")
     )
@@ -64,8 +65,10 @@ def main() -> None:
     args = parse_args()
     model_path = args.model if args.model.is_absolute() else PROJECT_ROOT / args.model
     data_dir = args.data_dir if args.data_dir.is_absolute() else PROJECT_ROOT / args.data_dir
-    dataset = YoloVehicleDataset(data_dir, args.split)
-    detector = CarDetector(model_path, device=args.device, confidence=args.confidence)
+    dataset = YoloDetectionDataset(data_dir, args.split)
+    detector = create_detector(
+        args.backend, model_path=model_path, device=args.device, confidence=args.confidence
+    )
 
     totals = {"true_positive": 0, "false_positive": 0, "false_negative": 0}
     count = min(len(dataset), args.limit) if args.limit else len(dataset)
@@ -75,10 +78,10 @@ def main() -> None:
         predicted = torch.tensor(
             [
                 [
-                    detection["box"]["x1"],
-                    detection["box"]["y1"],
-                    detection["box"]["x2"],
-                    detection["box"]["y2"],
+                    detection.box.x1,
+                    detection.box.y1,
+                    detection.box.x2,
+                    detection.box.y2,
                 ]
                 for detection in detections
             ],
