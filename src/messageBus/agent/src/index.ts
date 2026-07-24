@@ -1,14 +1,15 @@
 import { io, type Socket } from "socket.io-client";
 import type {
-  AgentToServerEvents,
+  ClientToServerEvents,
   HealthAcknowledgement,
-  ServerToClientEvents
+  ServerToSocketEvents
 } from "@pi-health/shared";
 import { config } from "./config.js";
+import { executeCommand } from "./commands.js";
 import { collectHealth } from "./health.js";
 
 const APP_VERSION = "1.0.0";
-const socket: Socket<ServerToClientEvents, AgentToServerEvents> = io(config.serverUrl, {
+const socket: Socket<ServerToSocketEvents, ClientToServerEvents> = io(config.serverUrl, {
   reconnection: true,
   reconnectionAttempts: Infinity,
   reconnectionDelay: 1_000,
@@ -54,6 +55,13 @@ socket.on("disconnect", (reason) => {
 
 socket.on("connect_error", (error) => {
   console.error(`[socket] connection error: ${error.message}`);
+});
+
+socket.on("agent:command", async (command, acknowledge) => {
+  console.log(`[command] ${command.command} (${command.requestId})`);
+  const result = await executeCommand(config.deviceId, command);
+  acknowledge(result);
+  console.log(`[command] ${command.command} ${result.success ? "completed" : "failed"}`);
 });
 
 function shutdown(signal: string) {

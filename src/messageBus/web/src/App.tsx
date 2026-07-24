@@ -1,4 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import type {
+  DeviceCommandName,
+  DeviceCommandResult
+} from "@pi-health/shared";
 import type { DeviceState, DeviceStatus } from "./types";
 import { socket } from "./socket";
 
@@ -44,7 +48,22 @@ function shortTime(date: string): string {
   }).format(new Date(date));
 }
 
-function DeviceCard({ device, now }: { device: DeviceState; now: number }) {
+const commandOptions: { command: DeviceCommandName; label: string; description: string }[] = [
+  { command: "system.info", label: "System info", description: "Kernel, OS, and architecture" },
+  { command: "disk.usage", label: "Disk usage", description: "Mounted filesystem capacity" },
+  { command: "network.interfaces", label: "Network", description: "Interface and address status" },
+  { command: "processes.top", label: "Top processes", description: "Processes ranked by CPU use" }
+];
+
+function DeviceCard({
+  device,
+  now,
+  onOpen
+}: {
+  device: DeviceState;
+  now: number;
+  onOpen: () => void;
+}) {
   const status = statusFor(device, now);
   const usedMemory = device.health.totalMemoryBytes - device.health.freeMemoryBytes;
   const memoryPercent = Math.min(
@@ -53,7 +72,16 @@ function DeviceCard({ device, now }: { device: DeviceState; now: number }) {
   );
 
   return (
-    <article className="device-card">
+    <article
+      className="device-card is-clickable"
+      role="link"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") onOpen();
+      }}
+      aria-label={`View details for ${device.health.deviceId}`}
+    >
       <div className="device-head">
         <div className="device-mark" aria-hidden="true">
           <span />
@@ -116,7 +144,172 @@ function DeviceCard({ device, now }: { device: DeviceState; now: number }) {
           )) : <em>No external address</em>}
         </div>
       </div>
+      <div className="open-device">
+        <span>Open device</span>
+        <span aria-hidden="true">→</span>
+      </div>
     </article>
+  );
+}
+
+function DeviceDetail({
+  device,
+  now,
+  onBack
+}: {
+  device?: DeviceState;
+  now: number;
+  onBack: () => void;
+}) {
+  const [pending, setPending] = useState<DeviceCommandName | null>(null);
+  const [results, setResults] = useState<DeviceCommandResult[]>([]);
+
+  if (!device) {
+    return (
+      <section className="detail-shell">
+        <button className="back-button" onClick={onBack}>← Back to fleet</button>
+        <div className="empty-state">
+          <h2>Device not found</h2>
+          <p>This Pi has not reported to the server during the current session.</p>
+        </div>
+      </section>
+    );
+  }
+
+  const status = statusFor(device, now);
+  const usedMemory = device.health.totalMemoryBytes - device.health.freeMemoryBytes;
+  const memoryPercent = Math.round((usedMemory / device.health.totalMemoryBytes) * 100);
+
+  function runCommand(command: DeviceCommandName) {
+    if (!device || pending) return;
+    setPending(command);
+    const requestId = crypto.randomUUID();
+    socket.timeout(17_000).emit(
+      "device:command",
+      { requestId, deviceId: device.health.deviceId, command },
+      (error: Error | null, result?: DeviceCommandResult) => {
+        setPending(null);
+        const timestamp = new Date().toISOString();
+        const completed = result ?? {
+          requestId,
+          deviceId: device.health.deviceId,
+          command,
+          success: false,
+          output: "",
+          startedAt: timestamp,
+          completedAt: timestamp,
+          error: error?.message ?? "Server did not answer"
+        };
+        setResults((current) => [completed, ...current].slice(0, 10));
+      }
+    );
+  }
+
+  return (
+    <section className="detail-shell">
+      <button className="back-button" onClick={onBack}>← Back to fleet</button>
+
+      <div className="detail-heading">
+        <div>
+          <p className="eyebrow">Device control</p>
+          <h1>{device.health.deviceId}</h1>
+          <p>{device.health.hostname} · {device.health.platform}/{device.health.architecture}</p>
+        </div>
+        <span className={`status detail-status status-${status}`}><i />{status}</span>
+      </div>
+
+      <div className="detail-grid">
+        <section className="detail-panel">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Live telemetry</p>
+              <h2>System health</h2>
+            </div>
+            <span>{timeAgo(device.receivedAt, now)}</span>
+          </div>
+          <div className="detail-metrics">
+            <div><span>Uptime</span><strong>{duration(device.health.uptimeSeconds)}</strong></div>
+            <div><span>Memory used</span><strong>{memoryPercent}%</strong></div>
+            <div><span>Free memory</span><strong>{bytes(device.health.freeMemoryBytes)}</strong></div>
+            <div><span>Agent version</span><strong>v{device.health.appVersion}</strong></div>
+          </div>
+          <div className="metric detail-memory">
+            <div className="metric-label">
+              <span>Memory</span>
+              <strong>{bytes(usedMemory)} / {bytes(device.health.totalMemoryBytes)}</strong>
+            </div>
+            <div className="progress"><span style={{ width: `${memoryPercent}%` }} /></div>
+          </div>
+          <div className="detail-list">
+            <div>
+              <span>CPU load averages</span>
+              <strong>{device.health.loadAverage.map((load) => load.toFixed(2)).join(" · ")}</strong>
+            </div>
+            <div>
+              <span>IP addresses</span>
+              <strong>{device.health.ipAddresses.join(", ") || "None reported"}</strong>
+            </div>
+            <div>
+              <span>Last agent sample</span>
+              <strong>{shortTime(device.health.timestamp)}</strong>
+            </div>
+            <div>
+              <span>Server received</span>
+              <strong>{shortTime(device.receivedAt)}</strong>
+            </div>
+          </div>
+        </section>
+
+        <section className="detail-panel">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Remote diagnostics</p>
+              <h2>Send a command</h2>
+            </div>
+            <span>Allowlisted</span>
+          </div>
+          <p className="panel-copy">
+            Commands run on this Pi through its agent and return their output here.
+          </p>
+          <div className="command-grid">
+            {commandOptions.map((option) => (
+              <button
+                key={option.command}
+                disabled={status === "offline" || pending !== null}
+                onClick={() => runCommand(option.command)}
+              >
+                <span>{pending === option.command ? "Running…" : option.label}</span>
+                <small>{option.description}</small>
+              </button>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <section className="detail-panel command-history">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">Responses</p>
+            <h2>Command history</h2>
+          </div>
+          {results.length > 0 && <button onClick={() => setResults([])}>Clear</button>}
+        </div>
+        {results.length === 0 ? (
+          <div className="console-empty">Run a diagnostic command to see its response.</div>
+        ) : results.map((result) => (
+          <article className="command-result" key={result.requestId}>
+            <header>
+              <strong>{commandOptions.find((item) => item.command === result.command)?.label}</strong>
+              <span className={result.success ? "result-ok" : "result-error"}>
+                {result.success ? "Completed" : "Failed"}
+              </span>
+              <time>{shortTime(result.completedAt)}</time>
+            </header>
+            <pre>{result.success ? result.output || "(no output)" : result.error}</pre>
+          </article>
+        ))}
+      </section>
+    </section>
   );
 }
 
@@ -125,6 +318,7 @@ export default function App() {
   const [connected, setConnected] = useState(socket.connected);
   const [now, setNow] = useState(Date.now());
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [path, setPath] = useState(window.location.pathname);
 
   useEffect(() => {
     const onConnect = () => setConnected(true);
@@ -156,6 +350,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const onPopState = () => setPath(window.location.pathname);
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  function navigate(nextPath: string) {
+    window.history.pushState({}, "", nextPath);
+    setPath(nextPath);
+  }
+
+  useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, []);
@@ -171,6 +376,8 @@ export default function App() {
     },
     { online: 0, stale: 0, offline: 0 }
   );
+  const detailMatch = path.match(/^\/devices\/([^/]+)$/);
+  const detailDeviceId = detailMatch ? decodeURIComponent(detailMatch[1]) : null;
 
   return (
     <main>
@@ -185,6 +392,13 @@ export default function App() {
         </div>
       </header>
 
+      {detailDeviceId ? (
+        <DeviceDetail
+          device={devices.get(detailDeviceId)}
+          now={now}
+          onBack={() => navigate("/")}
+        />
+      ) : <>
       <section className="hero">
         <div>
           <p className="eyebrow">Local fleet overview</p>
@@ -230,7 +444,12 @@ export default function App() {
         {list.length ? (
           <div className="device-grid">
             {list.map((device) => (
-              <DeviceCard key={device.health.deviceId} device={device} now={now} />
+              <DeviceCard
+                key={device.health.deviceId}
+                device={device}
+                now={now}
+                onOpen={() => navigate(`/devices/${encodeURIComponent(device.health.deviceId)}`)}
+              />
             ))}
           </div>
         ) : (
@@ -242,6 +461,7 @@ export default function App() {
           </div>
         )}
       </section>
+      </>}
 
       <footer>
         <span>Pi Health Monitor</span>

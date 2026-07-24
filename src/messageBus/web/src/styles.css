@@ -123,6 +123,9 @@ main {
   background: #fff;
   box-shadow: 0 8px 30px rgba(34, 51, 43, .035);
 }
+.device-card.is-clickable { cursor: pointer; transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+.device-card.is-clickable:hover { transform: translateY(-3px); border-color: #b7c8bb; box-shadow: 0 16px 40px rgba(34, 51, 43, .09); }
+.device-card.is-clickable:focus-visible { outline: 3px solid rgba(22,132,91,.22); outline-offset: 3px; }
 .device-head { display: flex; align-items: center; gap: 14px; padding-bottom: 21px; border-bottom: 1px solid #e8ece8; }
 .device-mark {
   width: 43px; height: 43px; border-radius: 12px;
@@ -156,6 +159,47 @@ main {
 .network div { display: flex; flex-wrap: wrap; justify-content: end; gap: 5px; }
 .network code { padding: 4px 7px; border: 1px solid #e0e5df; border-radius: 5px; color: #405149; font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: 9px; }
 .network em { color: var(--muted); font-size: 10px; }
+.open-device { margin-top: 20px; padding-top: 15px; border-top: 1px solid #edf0ec; display: flex; justify-content: space-between; color: var(--green); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .7px; }
+
+.detail-shell { max-width: 1380px; min-height: calc(100vh - 150px); margin: 0 auto; padding: 40px clamp(24px, 5vw, 76px) 70px; }
+.back-button { padding: 9px 0; border: 0; background: transparent; color: var(--green); cursor: pointer; font-size: 12px; font-weight: 800; }
+.detail-heading { margin: 34px 0 32px; display: flex; justify-content: space-between; align-items: end; gap: 24px; }
+.detail-heading h1 { margin: 0; font-size: clamp(42px, 6vw, 68px); letter-spacing: -3px; line-height: 1; }
+.detail-heading > div > p:last-child { margin: 13px 0 0; color: var(--muted); font-size: 14px; }
+.detail-status { padding: 10px 14px; border: 1px solid var(--line); border-radius: 100px; background: rgba(255,255,255,.7); }
+.detail-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(320px, .8fr); gap: 16px; }
+.detail-panel { padding: 26px; border: 1px solid var(--line); border-radius: 20px; background: rgba(255,255,255,.88); box-shadow: 0 8px 30px rgba(34,51,43,.035); }
+.panel-heading { display: flex; justify-content: space-between; align-items: end; gap: 20px; }
+.panel-heading .eyebrow { margin-bottom: 6px; }
+.panel-heading h2 { margin: 0; font-size: 20px; letter-spacing: -.6px; }
+.panel-heading > span { color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; }
+.panel-heading > button { border: 0; background: transparent; color: var(--green); cursor: pointer; font-size: 11px; font-weight: 800; }
+.panel-copy { margin: 17px 0 21px; color: var(--muted); font-size: 12px; line-height: 1.65; }
+.detail-metrics { margin: 24px 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.detail-metrics div { padding: 14px; border-radius: 12px; background: #f4f7f2; }
+.detail-metrics span, .detail-list span { display: block; margin-bottom: 7px; color: #89928d; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .8px; }
+.detail-metrics strong { font-size: 15px; }
+.detail-memory { margin-bottom: 22px; }
+.detail-list { border-top: 1px solid #e8ece8; }
+.detail-list div { padding: 14px 0; display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 20px; border-bottom: 1px solid #edf0ec; }
+.detail-list span { margin: 0; }
+.detail-list strong { min-width: 0; overflow-wrap: anywhere; text-align: right; font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: 10px; font-weight: 500; }
+.command-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.command-grid button { padding: 16px; min-height: 88px; border: 1px solid #dce4dc; border-radius: 13px; background: #f6f8f4; cursor: pointer; text-align: left; transition: border-color .15s, background .15s; }
+.command-grid button:hover:not(:disabled) { border-color: #8eb39d; background: #edf5ea; }
+.command-grid button:disabled { cursor: not-allowed; opacity: .5; }
+.command-grid button span { display: block; color: var(--ink); font-size: 12px; font-weight: 800; }
+.command-grid button small { display: block; margin-top: 8px; color: var(--muted); font-size: 9px; line-height: 1.4; }
+.command-history { margin-top: 16px; }
+.console-empty { margin-top: 22px; padding: 34px; border: 1px dashed #ced7cf; border-radius: 13px; color: var(--muted); text-align: center; font-size: 11px; }
+.command-result { margin-top: 16px; overflow: hidden; border: 1px solid #dfe5df; border-radius: 13px; background: #14201b; }
+.command-result header { padding: 12px 15px; display: flex; align-items: center; gap: 12px; background: #f4f7f2; }
+.command-result header strong { font-size: 11px; }
+.command-result header span { padding: 4px 7px; border-radius: 100px; font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: .6px; }
+.command-result header time { margin-left: auto; color: var(--muted); font-size: 9px; }
+.result-ok { color: #16734e; background: #dff2d9; }
+.result-error { color: #9c4e3c; background: #f4ded8; }
+.command-result pre { margin: 0; padding: 18px; max-height: 360px; overflow: auto; color: #d8e6dc; font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: 11px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
 
 .empty-state {
   padding: 80px 30px; text-align: center;
@@ -173,6 +217,8 @@ footer { padding: 24px clamp(24px, 5vw, 76px); display: flex; justify-content: s
 @media (max-width: 850px) {
   .summary { grid-template-columns: 1fr 1fr; }
   .device-grid { grid-template-columns: 1fr; }
+  .detail-grid { grid-template-columns: 1fr; }
+  .detail-metrics { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 600px) {
   .topbar { height: 66px; }
@@ -189,4 +235,10 @@ footer { padding: 24px clamp(24px, 5vw, 76px); display: flex; justify-content: s
   .device-facts { gap: 16px; }
   footer { display: block; }
   footer span { display: block; margin: 4px 0; }
+  .detail-heading { align-items: start; flex-direction: column; }
+  .detail-heading h1 { letter-spacing: -2px; }
+  .detail-panel { padding: 19px; }
+  .command-grid { grid-template-columns: 1fr; }
+  .detail-list div { grid-template-columns: 1fr; gap: 4px; }
+  .detail-list strong { text-align: left; }
 }

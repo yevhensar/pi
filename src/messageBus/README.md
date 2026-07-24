@@ -62,9 +62,24 @@ traffic to port 3000.
 - `GET /api/devices/:deviceId`
 - agent event: `device:health`
 - browser events: `devices:snapshot`, `device:updated`
+- browser command: `device:command`
+- server-to-agent command: `agent:command`
 
 Device health is intentionally held in memory. Restarting the server clears
 the known-device list.
+
+Clicking a device card opens `/devices/:deviceId`, which shows expanded
+telemetry and a remote diagnostic console. The console supports a strict
+allowlist of non-destructive commands:
+
+- system and kernel information
+- disk usage
+- network interface status
+- top processes by CPU usage
+
+Commands are executed directly without a shell, time out after 10 seconds, and
+return their output to the requesting dashboard. Arbitrary shell commands are
+not accepted.
 
 ## Install the Ubuntu server
 

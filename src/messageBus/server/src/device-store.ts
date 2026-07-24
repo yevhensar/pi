@@ -49,6 +49,10 @@ export class DeviceStore {
     return this.devices.get(deviceId);
   }
 
+  socketIdFor(deviceId: string): string | undefined {
+    return this.socketIdByDevice.get(deviceId);
+  }
+
   all(): DeviceState[] {
     return [...this.devices.values()].sort((a, b) =>
       a.health.deviceId.localeCompare(b.health.deviceId)

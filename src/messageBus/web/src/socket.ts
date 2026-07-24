@@ -1,10 +1,10 @@
 import { io, type Socket } from "socket.io-client";
 import type {
-  AgentToServerEvents,
-  ServerToClientEvents
+  ClientToServerEvents,
+  ServerToSocketEvents
 } from "@pi-health/shared";
 
-export const socket: Socket<ServerToClientEvents, AgentToServerEvents> = io({
+export const socket: Socket<ServerToSocketEvents, ClientToServerEvents> = io({
   autoConnect: true,
   transports: ["websocket", "polling"]
 });
