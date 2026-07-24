@@ -1,0 +1,27 @@
+{
+  "name": "pi-health-monitor",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "server",
+    "web",
+    "agent"
+  ],
+  "scripts": {
+    "build": "npm run build -w @pi-health/shared && npm run build -w @pi-health/agent && npm run build -w @pi-health/web && npm run build -w @pi-health/server",
+    "start": "npm start -w @pi-health/server",
+    "dev": "concurrently -n server,web -c cyan,magenta \"npm run dev:server\" \"npm run dev:web\"",
+    "dev:server": "npm run dev -w @pi-health/server",
+    "dev:web": "npm run dev -w @pi-health/web",
+    "dev:agent": "npm run dev -w @pi-health/agent",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "clean": "npm run clean --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
