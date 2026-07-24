@@ -8,5 +8,6 @@ if (!Number.isFinite(healthIntervalMs) || healthIntervalMs < 1000) {
 export const config = {
   serverUrl: process.env.SERVER_URL ?? "http://127.0.0.1:3000",
   deviceId: process.env.DEVICE_ID?.trim() || os.hostname(),
+  wifiInterface: process.env.WIFI_INTERFACE?.trim() || undefined,
   healthIntervalMs
 };

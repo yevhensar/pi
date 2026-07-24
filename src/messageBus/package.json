@@ -15,6 +15,9 @@
     "dev:server": "npm run dev -w @pi-health/server",
     "dev:web": "npm run dev -w @pi-health/web",
     "dev:agent": "npm run dev -w @pi-health/agent",
+    "deploy:server": "bash scripts/deploy-server.sh",
+    "deploy:client": "bash scripts/deploy-to-pi.sh",
+    "deploy:clients": "bash scripts/deploy-fleet.sh",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "clean": "npm run clean --workspaces --if-present"
   },

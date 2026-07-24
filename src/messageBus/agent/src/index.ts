@@ -20,7 +20,7 @@ const socket: Socket<ServerToClientEvents, AgentToServerEvents> = io(config.serv
 let interval: NodeJS.Timeout | undefined;
 
 function transmit() {
-  const health = collectHealth(config.deviceId, APP_VERSION);
+  const health = collectHealth(config.deviceId, APP_VERSION, config.wifiInterface);
   console.log(`[health] sending ${health.deviceId} at ${health.timestamp}`);
   socket.timeout(10_000).emit(
     "device:health",

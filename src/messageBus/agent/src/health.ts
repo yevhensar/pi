@@ -1,14 +1,20 @@
 import os from "node:os";
 import type { HealthCheck } from "@pi-health/shared";
 
-function ipAddresses(): string[] {
-  return Object.values(os.networkInterfaces())
+function ipAddresses(interfaceName?: string): string[] {
+  const interfaces = os.networkInterfaces();
+  const selected = interfaceName ? [interfaces[interfaceName]] : Object.values(interfaces);
+  return selected
     .flatMap((addresses) => addresses ?? [])
     .filter((address) => !address.internal)
     .map((address) => address.address);
 }
 
-export function collectHealth(deviceId: string, appVersion: string): HealthCheck {
+export function collectHealth(
+  deviceId: string,
+  appVersion: string,
+  interfaceName?: string
+): HealthCheck {
   return {
     deviceId,
     hostname: os.hostname(),
@@ -20,6 +26,6 @@ export function collectHealth(deviceId: string, appVersion: string): HealthCheck
     platform: os.platform(),
     architecture: os.arch(),
     appVersion,
-    ipAddresses: ipAddresses()
+    ipAddresses: ipAddresses(interfaceName)
   };
 }

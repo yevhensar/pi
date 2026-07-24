@@ -5,10 +5,32 @@ APP_DIR=/opt/pi-health-monitor
 ENV_DIR=/etc/pi-health-monitor
 SERVICE_FILE=/etc/systemd/system/pi-health-monitor-server.service
 SERVICE_USER=pi-health-monitor
-SOURCE_PATH=${1:-$(pwd)}
+SOURCE_PATH=$(pwd)
+SERVER_PORT=3000
+
+usage() {
+  echo "Usage: sudo $0 [--source DIRECTORY_OR_ARCHIVE] [--port PORT]"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --source) SOURCE_PATH=${2:-}; shift 2 ;;
+    --port) SERVER_PORT=${2:-}; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *)
+      # Backward compatibility with the original positional source argument.
+      if [[ $# -eq 1 && $1 != --* ]]; then SOURCE_PATH=$1; shift; else
+        echo "Error: unknown argument: $1" >&2; usage; exit 1
+      fi
+      ;;
+  esac
+done
+
+[[ $SERVER_PORT =~ ^[0-9]+$ ]] && (( SERVER_PORT >= 1 && SERVER_PORT <= 65535 )) ||
+  { echo "Error: invalid port." >&2; exit 1; }
 
 if [[ $EUID -ne 0 ]]; then
-  exec sudo -- "$0" "$@"
+  exec sudo -- "$0" --source "$SOURCE_PATH" --port "$SERVER_PORT"
 fi
 
 command -v node >/dev/null || { echo "Error: Node.js 20 or newer is required." >&2; exit 1; }
@@ -43,9 +65,7 @@ echo "Installing dependencies and building..."
 runuser -u "$SERVICE_USER" -- bash -c "cd '$APP_DIR' && npm ci && npm run build && npm prune --omit=dev"
 
 install -d -o root -g "$SERVICE_USER" -m 0750 "$ENV_DIR"
-if [[ ! -f $ENV_DIR/server.env ]]; then
-  printf 'PORT=3000\nNODE_ENV=production\n' > "$ENV_DIR/server.env"
-fi
+printf 'PORT=%s\nNODE_ENV=production\n' "$SERVER_PORT" > "$ENV_DIR/server.env"
 chown root:"$SERVICE_USER" "$ENV_DIR/server.env"
 chmod 0640 "$ENV_DIR/server.env"
 
@@ -81,4 +101,4 @@ HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 echo
 systemctl --no-pager --full status pi-health-monitor-server.service || true
 echo
-echo "Dashboard: http://${HOST_IP:-localhost}:3000"
+echo "Dashboard: http://${HOST_IP:-localhost}:$SERVER_PORT"

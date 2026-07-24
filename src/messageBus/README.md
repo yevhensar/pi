@@ -68,12 +68,28 @@ the known-device list.
 
 ## Install the Ubuntu server
 
-From the repository root:
+The Ubuntu server is installed on the local machine, not over SSH. Create its
+configuration:
 
 ```bash
-sudo ./scripts/install-server.sh .
+cp config/server.example.json config/server.json
 ```
 
+```json
+{
+  "role": "server",
+  "port": 3000
+}
+```
+
+Validate and install through npm:
+
+```bash
+npm run deploy:server -- --config config/server.json --check-config
+npm run deploy:server -- --config config/server.json
+```
+
+The install command invokes `sudo` when needed.
 The service is installed under `/opt/pi-health-monitor`; configuration lives
 at `/etc/pi-health-monitor/server.env`.
 
@@ -88,6 +104,55 @@ sudo ./scripts/install-pi.sh \
 ```
 
 ## Deploy one client over SSH
+
+### JSON configuration
+
+Create a private configuration from the safe example:
+
+```bash
+cp config/pi-client.example.json config/pi-client.json
+chmod 600 config/pi-client.json
+```
+
+```json
+{
+  "host": "192.168.1.60",
+  "ssh_user": "pi",
+  "ssh_password": "",
+  "sudo_password": "",
+  "ssh_port": 22,
+  "role": "client",
+  "client_id": "pi-5-01",
+  "wifi_interface": "wlan0",
+  "server_url": "http://192.168.1.50:3000"
+}
+```
+
+Validate without connecting or exposing passwords:
+
+```bash
+./scripts/deploy-to-pi.sh \
+  --config config/pi-client.json \
+  --check-config
+```
+
+Deploy:
+
+```bash
+npm run deploy:client -- --config config/pi-client.json
+```
+
+`server_url` may be omitted from JSON and supplied as
+`--server-url http://192.168.1.50:3000`. Explicit command-line options override
+JSON values. When `wifi_interface` is set, the agent reports addresses from
+that interface; leave it empty to report all active interfaces.
+
+Password fields are optional. Empty values use SSH keys or normal interactive
+authentication and passwordless/interactive sudo. A non-empty `ssh_password`
+requires the local `sshpass` package. Real `config/*.json` files are ignored by
+Git; keep them mode `600` because they contain plaintext credentials.
+
+### Command-line configuration
 
 ```bash
 ./scripts/deploy-to-pi.sh \
@@ -105,31 +170,57 @@ role as a client.
 
 ## Deploy many clients over SSH
 
-Copy the example fleet file and list each Pi with a unique device ID:
+Copy the JSON fleet example:
 
 ```bash
-cp config/fleet.example.csv config/fleet.csv
+cp config/pi-fleet.example.json config/pi-fleet.json
+chmod 600 config/pi-fleet.json
 ```
 
-```csv
-# ssh_host,device_id,ssh_port
-pi@192.168.1.60,pi-5-01,22
-pi@192.168.1.61,pi-5-02,22
-pi@192.168.1.62,pi-5-03,22
+Shared settings belong at the root and may be overridden by any client:
+
+```json
+{
+  "server_url": "http://192.168.1.50:3000",
+  "ssh_user": "pi",
+  "ssh_password": "",
+  "sudo_password": "",
+  "ssh_port": 22,
+  "wifi_interface": "wlan0",
+  "clients": [
+    {
+      "host": "192.168.1.60",
+      "role": "client",
+      "client_id": "pi-5-01"
+    },
+    {
+      "host": "192.168.1.61",
+      "role": "client",
+      "client_id": "pi-5-02"
+    }
+  ]
+}
+```
+
+Validate every entry without connecting:
+
+```bash
+./scripts/deploy-fleet.sh \
+  --config config/pi-fleet.json \
+  --check-config
 ```
 
 Deploy the entire fleet:
 
 ```bash
-./scripts/deploy-fleet.sh \
-  --fleet config/fleet.csv \
-  --server-url http://192.168.1.50:3000
+npm run deploy:clients -- --config config/pi-fleet.json
 ```
 
 The client is built once and then deployed sequentially. Deployment stops on
 the first failure so a partial rollout is visible and safe to resume. Re-run
 the same command after resolving the failed host; already installed clients
-are upgraded safely.
+are upgraded safely. The earlier CSV format remains supported with
+`--fleet config/fleet.csv --server-url URL`.
 
 ## Service operations
 

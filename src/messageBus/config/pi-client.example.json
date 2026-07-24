@@ -1,0 +1,11 @@
+{
+  "host": "192.168.1.60",
+  "ssh_user": "pi",
+  "ssh_password": "",
+  "sudo_password": "",
+  "ssh_port": 22,
+  "role": "client",
+  "client_id": "pi-5-01",
+  "wifi_interface": "wlan0",
+  "server_url": "http://192.168.1.50:3000"
+}

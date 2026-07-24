@@ -7,10 +7,11 @@ SERVICE_FILE=/etc/systemd/system/pi-health-agent.service
 SERVICE_USER=pi-health-agent
 SERVER_URL=
 DEVICE_ID=
+WIFI_INTERFACE=
 SOURCE_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 usage() {
-  echo "Usage: sudo $0 --server-url URL --device-id ID [--source-dir DIR]"
+  echo "Usage: sudo $0 --server-url URL --device-id ID [--source-dir DIR] [--wifi-interface NAME]"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -18,18 +19,23 @@ while [[ $# -gt 0 ]]; do
     --server-url) SERVER_URL=${2:-}; shift 2 ;;
     --device-id) DEVICE_ID=${2:-}; shift 2 ;;
     --source-dir) SOURCE_DIR=${2:-}; shift 2 ;;
+    --wifi-interface) WIFI_INTERFACE=${2:-}; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Error: unknown argument: $1" >&2; usage; exit 1 ;;
   esac
 done
 
-[[ $SERVER_URL =~ ^https?://[A-Za-z0-9._:\[\]-]+(/[^[:space:]\'\"]*)?$ ]] ||
+[[ $SERVER_URL =~ ^https?://[^[:space:]]+$ && $SERVER_URL != *"'"* && $SERVER_URL != *'"'* ]] ||
   { echo "Error: --server-url must be an http(s) URL." >&2; exit 1; }
 [[ $DEVICE_ID =~ ^[A-Za-z0-9._-]+$ ]] ||
   { echo "Error: --device-id may contain letters, digits, dots, underscores, and dashes." >&2; exit 1; }
+[[ -z $WIFI_INTERFACE || $WIFI_INTERFACE =~ ^[A-Za-z0-9._:-]+$ ]] ||
+  { echo "Error: invalid Wi-Fi interface." >&2; exit 1; }
 
 if [[ $EUID -ne 0 ]]; then
-  exec sudo -- "$0" --server-url "$SERVER_URL" --device-id "$DEVICE_ID" --source-dir "$SOURCE_DIR"
+  sudo_arguments=("$0" --server-url "$SERVER_URL" --device-id "$DEVICE_ID" --source-dir "$SOURCE_DIR")
+  [[ -z $WIFI_INTERFACE ]] || sudo_arguments+=(--wifi-interface "$WIFI_INTERFACE")
+  exec sudo -- "${sudo_arguments[@]}"
 fi
 
 command -v node >/dev/null || { echo "Error: Node.js 20 or newer is required." >&2; exit 1; }
@@ -63,6 +69,7 @@ install -d -o root -g "$SERVICE_USER" -m 0750 "$ENV_DIR"
   printf 'SERVER_URL=%s\n' "$SERVER_URL"
   printf 'DEVICE_ID=%s\n' "$DEVICE_ID"
   printf 'HEALTH_INTERVAL_MS=60000\n'
+  [[ -z $WIFI_INTERFACE ]] || printf 'WIFI_INTERFACE=%s\n' "$WIFI_INTERFACE"
 } > "$ENV_DIR/agent.env"
 chown root:"$SERVICE_USER" "$ENV_DIR/agent.env"
 chmod 0640 "$ENV_DIR/agent.env"
