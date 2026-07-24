@@ -7,6 +7,7 @@ SERVER_URL=
 CHECK_CONFIG=false
 SUCCEEDED=0
 CONFIG_TMP=
+MESSAGE_TOKEN_FILE="$ROOT_DIR/config/message-token.json"
 
 usage() {
   cat <<'EOF'
@@ -57,6 +58,13 @@ JSON_SERVER_URL=$(jq -r '.server_url // empty' "$CONFIG_FILE")
 SERVER_URL=${SERVER_URL:-$JSON_SERVER_URL}
 [[ -n $SERVER_URL ]] ||
   { echo "Error: server_url is required in JSON or via --server-url." >&2; exit 1; }
+
+if [[ $CHECK_CONFIG == true && ! -f $MESSAGE_TOKEN_FILE ]]; then
+  echo "Message encryption: token will be initialized during deployment."
+else
+  node "$ROOT_DIR/scripts/message-token.mjs" --file "$MESSAGE_TOKEN_FILE" --init --quiet
+  echo "Message encryption: shared token loaded."
+fi
 
 CONFIG_TMP=$(mktemp -d)
 CLIENT_COUNT=$(jq '.clients | length' "$CONFIG_FILE")

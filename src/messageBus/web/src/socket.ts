@@ -5,6 +5,6 @@ import type {
 } from "@pi-health/shared";
 
 export const socket: Socket<ServerToSocketEvents, ClientToServerEvents> = io({
-  autoConnect: true,
+  autoConnect: false,
   transports: ["websocket", "polling"]
 });

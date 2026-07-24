@@ -530,48 +530,33 @@ At minimum:
 * reject malformed payloads without crashing
 * return a failed acknowledgement for invalid messages
 
-Add a configurable shared token for basic local-network authentication.
+Use one configurable 32-byte base64url token for authenticated application
+message encryption.
 
 Server environment:
 
 ```text
-DEVICE_AUTH_TOKEN=replace-me
+MESSAGE_TOKEN=43-character-base64url-token
 ```
 
 Pi environment:
 
 ```text
-DEVICE_AUTH_TOKEN=replace-me
+MESSAGE_TOKEN=43-character-base64url-token
 ```
 
-The Pi should send the token using Socket.IO connection authentication:
+Encrypt health reports, acknowledgements, snapshots, updates, commands,
+command results, and API JSON responses with AES-256-GCM. Use a fresh random
+96-bit nonce for every message, authenticate the event/direction as additional
+data, and reject repeated encrypted message IDs. The browser must ask the user
+for the same token and retain it only in session storage for the current tab.
+Never send the token itself through Socket.IO or an HTTP endpoint.
 
-```ts
-auth: {
-  token: process.env.DEVICE_AUTH_TOKEN
-}
-```
-
-Reject unauthorized device connections.
-
-Browser clients should not require this device token. Distinguish Pi agents from browser connections using a connection type:
-
-```ts
-auth: {
-  clientType: "device",
-  token: "..."
-}
-```
-
-or:
-
-```ts
-auth: {
-  clientType: "dashboard"
-}
-```
-
-Do not expose the device authentication token to the React application.
+Generate the ignored `config/message-token.json` file automatically during
+deployment, install it into protected systemd environment files, and provide a
+separate rotation command. Static assets and Socket.IO framing are outside the
+application envelope; HTTPS/WSS may be added when transport metadata also
+needs protection.
 
 ## Error handling
 

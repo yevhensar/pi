@@ -16,6 +16,7 @@ FLIGHT_CONTROLLER_BAUD=115200
 MOTOR_TEST_ENABLED=false
 MOTOR_TEST_OUTPUT=1050
 MOTOR_TEST_DURATION_MS=2000
+MESSAGE_TOKEN=
 SSH_PORT=22
 SKIP_BUILD=false
 CHECK_CONFIG=false
@@ -72,6 +73,7 @@ if [[ -n $CONFIG_FILE ]]; then
   MOTOR_TEST_ENABLED=$(jq -r '.flight_controller.motor_test.enabled // false' "$CONFIG_FILE")
   MOTOR_TEST_OUTPUT=$(jq -r '.flight_controller.motor_test.output // 1050' "$CONFIG_FILE")
   MOTOR_TEST_DURATION_MS=$(jq -r '.flight_controller.motor_test.duration_ms // 2000' "$CONFIG_FILE")
+  MESSAGE_TOKEN=$(jq -r '.message_token // empty' "$CONFIG_FILE")
   SSH_PORT=$(jq -r '.ssh_port // 22' "$CONFIG_FILE")
   ROLE=$(jq -r '.role // "client"' "$CONFIG_FILE")
 
@@ -102,6 +104,15 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -z $MESSAGE_TOKEN ]]; then
+  if [[ $CHECK_CONFIG == true && ! -f $ROOT_DIR/config/message-token.json ]]; then
+    MESSAGE_TOKEN=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+  else
+    node "$ROOT_DIR/scripts/message-token.mjs" --init --quiet
+    MESSAGE_TOKEN=$(node "$ROOT_DIR/scripts/message-token.mjs" --show)
+  fi
+fi
+
 [[ -n $REMOTE_HOST && -n $SERVER_URL && -n $DEVICE_ID ]] ||
   { echo "Error: --host, --server-url, and --device-id are required." >&2; usage; exit 1; }
 [[ $SERVER_URL =~ ^https?://[^[:space:]]+$ && $SERVER_URL != *"'"* && $SERVER_URL != *'"'* ]] ||
@@ -110,6 +121,8 @@ done
   { echo "Error: invalid SSH port." >&2; exit 1; }
 [[ $DEVICE_ID =~ ^[A-Za-z0-9._-]+$ ]] ||
   { echo "Error: invalid device ID." >&2; exit 1; }
+[[ $MESSAGE_TOKEN =~ ^[A-Za-z0-9_-]{43}$ ]] ||
+  { echo "Error: message token must be a 32-byte base64url value." >&2; exit 1; }
 [[ -z $WIFI_INTERFACE || $WIFI_INTERFACE =~ ^[A-Za-z0-9._:-]+$ ]] ||
   { echo "Error: invalid Wi-Fi interface." >&2; exit 1; }
 [[ $FLIGHT_CONTROLLER_ENABLED == true || $FLIGHT_CONTROLLER_ENABLED == false ]] ||
@@ -136,6 +149,7 @@ if [[ $CHECK_CONFIG == true ]]; then
   echo "Role: client"
   echo "Client ID: $DEVICE_ID"
   echo "Server URL: $SERVER_URL"
+  echo "Message encryption: configured"
   echo "Wi-Fi interface: ${WIFI_INTERFACE:-all interfaces}"
   echo "Flight controller: $([[ $FLIGHT_CONTROLLER_ENABLED == true ]] && echo "$FLIGHT_CONTROLLER_PROTOCOL on $FLIGHT_CONTROLLER_DEVICE at $FLIGHT_CONTROLLER_BAUD baud" || echo disabled)"
   echo "Motor test: $([[ $MOTOR_TEST_ENABLED == true ]] && echo "enabled ($MOTOR_TEST_OUTPUT for ${MOTOR_TEST_DURATION_MS}ms)" || echo disabled)"
@@ -173,18 +187,22 @@ if [[ $SKIP_BUILD == false ]]; then
   npm run build -w @pi-health/agent
 else
   echo "[1/5] Using existing agent build..."
-  [[ -f agent/dist/index.js ]] ||
+  [[ -f agent/dist/index.js && -f shared/dist/types.js ]] ||
     { echo "Error: agent build missing; run without --skip-build first." >&2; exit 1; }
 fi
 
 echo "[2/5] Preparing deployment archive..."
 LOCAL_TMP=$(mktemp -d)
-mkdir -p "$LOCAL_TMP/bundle/agent" "$LOCAL_TMP/bundle/scripts"
+mkdir -p "$LOCAL_TMP/bundle/agent" "$LOCAL_TMP/bundle/scripts" "$LOCAL_TMP/bundle/shared"
 cp -a agent/dist "$LOCAL_TMP/bundle/agent/dist"
 cp -a agent/python "$LOCAL_TMP/bundle/agent/python"
 cp agent/package.production.json "$LOCAL_TMP/bundle/agent/package.json"
+cp -a shared/dist "$LOCAL_TMP/bundle/shared/dist"
+cp shared/package.json "$LOCAL_TMP/bundle/shared/package.json"
 cp package-lock.json "$LOCAL_TMP/bundle/package-lock.json"
 cp scripts/install-pi.sh "$LOCAL_TMP/bundle/scripts/install-pi.sh"
+printf '%s\n' "$MESSAGE_TOKEN" > "$LOCAL_TMP/bundle/message-token"
+chmod 600 "$LOCAL_TMP/bundle/message-token"
 cp -a node_modules "$LOCAL_TMP/bundle/node_modules"
 tar -czf "$LOCAL_TMP/pi-health-agent.tar.gz" -C "$LOCAL_TMP/bundle" .
 
@@ -202,6 +220,7 @@ if [[ -n $SUDO_PASSWORD ]]; then
   INSTALL_COMMAND+=" -S -p ''"
 fi
 INSTALL_COMMAND+=" '$REMOTE_TMP/scripts/install-pi.sh' --server-url '$SERVER_URL' --device-id '$DEVICE_ID' --source-dir '$REMOTE_TMP'"
+INSTALL_COMMAND+=" --message-token-file '$REMOTE_TMP/message-token'"
 if [[ -n $WIFI_INTERFACE ]]; then
   INSTALL_COMMAND+=" --wifi-interface '$WIFI_INTERFACE'"
 fi
@@ -209,9 +228,9 @@ INSTALL_COMMAND+=" --flight-controller-enabled '$FLIGHT_CONTROLLER_ENABLED' --fl
 INSTALL_COMMAND+=" --motor-test-enabled '$MOTOR_TEST_ENABLED' --motor-test-output '$MOTOR_TEST_OUTPUT' --motor-test-duration-ms '$MOTOR_TEST_DURATION_MS'"
 
 if [[ -n $SUDO_PASSWORD ]]; then
-  printf '%s\n' "$SUDO_PASSWORD" | "${SSH_COMMAND[@]}" -tt "$REMOTE_HOST" "$INSTALL_COMMAND"
+  printf '%s\n' "$SUDO_PASSWORD" | "${SSH_COMMAND[@]}" -T "$REMOTE_HOST" "$INSTALL_COMMAND"
 else
-  "${SSH_COMMAND[@]}" -tt "$REMOTE_HOST" "$INSTALL_COMMAND"
+  "${SSH_COMMAND[@]}" -T "$REMOTE_HOST" "$INSTALL_COMMAND"
 fi
 
 echo "Deployment complete: $DEVICE_ID → $SERVER_URL"

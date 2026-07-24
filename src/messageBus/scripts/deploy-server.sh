@@ -4,6 +4,7 @@ set -Eeuo pipefail
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 CONFIG_FILE=
 CHECK_CONFIG=false
+MESSAGE_TOKEN_FILE="$ROOT_DIR/config/message-token.json"
 
 usage() {
   cat <<'EOF'
@@ -41,5 +42,9 @@ if [[ $CHECK_CONFIG == true ]]; then
   exit 0
 fi
 
+node "$ROOT_DIR/scripts/message-token.mjs" --file "$MESSAGE_TOKEN_FILE" --init
 echo "Installing the local server (sudo may prompt)..."
-exec "$ROOT_DIR/scripts/install-server.sh" --source "$ROOT_DIR" --port "$SERVER_PORT"
+exec "$ROOT_DIR/scripts/install-server.sh" \
+  --source "$ROOT_DIR" \
+  --port "$SERVER_PORT" \
+  --message-token-file "$MESSAGE_TOKEN_FILE"

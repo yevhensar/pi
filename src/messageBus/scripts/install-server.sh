@@ -7,15 +7,18 @@ SERVICE_FILE=/etc/systemd/system/pi-health-monitor-server.service
 SERVICE_USER=pi-health-monitor
 SOURCE_PATH=$(pwd)
 SERVER_PORT=3000
+MESSAGE_TOKEN_FILE=
+MESSAGE_TOKEN=
 
 usage() {
-  echo "Usage: sudo $0 [--source DIRECTORY_OR_ARCHIVE] [--port PORT]"
+  echo "Usage: sudo $0 [--source DIRECTORY_OR_ARCHIVE] [--port PORT] --message-token-file FILE"
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --source) SOURCE_PATH=${2:-}; shift 2 ;;
     --port) SERVER_PORT=${2:-}; shift 2 ;;
+    --message-token-file) MESSAGE_TOKEN_FILE=${2:-}; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *)
       # Backward compatibility with the original positional source argument.
@@ -28,9 +31,18 @@ done
 
 [[ $SERVER_PORT =~ ^[0-9]+$ ]] && (( SERVER_PORT >= 1 && SERVER_PORT <= 65535 )) ||
   { echo "Error: invalid port." >&2; exit 1; }
+[[ -r $MESSAGE_TOKEN_FILE ]] ||
+  { echo "Error: --message-token-file must name a readable file." >&2; exit 1; }
+command -v jq >/dev/null || { echo "Error: jq is required." >&2; exit 1; }
+MESSAGE_TOKEN=$(jq -r '.token // empty' "$MESSAGE_TOKEN_FILE")
+[[ $MESSAGE_TOKEN =~ ^[A-Za-z0-9_-]{43}$ ]] ||
+  { echo "Error: invalid message token." >&2; exit 1; }
 
 if [[ $EUID -ne 0 ]]; then
-  exec sudo -- "$0" --source "$SOURCE_PATH" --port "$SERVER_PORT"
+  exec sudo -- "$0" \
+    --source "$SOURCE_PATH" \
+    --port "$SERVER_PORT" \
+    --message-token-file "$MESSAGE_TOKEN_FILE"
 fi
 
 command -v node >/dev/null || { echo "Error: Node.js 20 or newer is required." >&2; exit 1; }
@@ -59,13 +71,21 @@ install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0755 "$APP_DIR"
 find "$APP_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 cp -a "$SOURCE_PATH"/. "$APP_DIR"/
 rm -rf "$APP_DIR/node_modules"
+rm -rf "$APP_DIR/.git"
+if [[ -d $APP_DIR/config ]]; then
+  find "$APP_DIR/config" -maxdepth 1 -type f -name '*.json' ! -name '*.example.json' -delete
+fi
 chown -R "$SERVICE_USER:$SERVICE_USER" "$APP_DIR"
 
 echo "Installing dependencies and building..."
 runuser -u "$SERVICE_USER" -- bash -c "cd '$APP_DIR' && npm ci && npm run build && npm prune --omit=dev"
 
 install -d -o root -g "$SERVICE_USER" -m 0750 "$ENV_DIR"
-printf 'PORT=%s\nNODE_ENV=production\n' "$SERVER_PORT" > "$ENV_DIR/server.env"
+{
+  printf 'PORT=%s\n' "$SERVER_PORT"
+  printf 'NODE_ENV=production\n'
+  printf 'MESSAGE_TOKEN=%s\n' "$MESSAGE_TOKEN"
+} > "$ENV_DIR/server.env"
 chown root:"$SERVICE_USER" "$ENV_DIR/server.env"
 chmod 0640 "$ENV_DIR/server.env"
 

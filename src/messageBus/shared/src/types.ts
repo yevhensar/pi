@@ -1,3 +1,7 @@
+import type { EncryptedEnvelope } from "./crypto.js";
+export { createMessageCipher, MessageCipher, messageContexts } from "./crypto.js";
+export type { EncryptedEnvelope } from "./crypto.js";
+
 export type FlightControllerStatus = "healthy" | "warning" | "error" | "disconnected";
 
 export type FlightControllerHealth = {
@@ -95,27 +99,27 @@ export type DeviceCommandResult = DeviceCommandRequest & {
 
 export interface AgentToServerEvents {
   "device:health": (
-    health: HealthCheck,
-    acknowledge: (result: HealthAcknowledgement) => void
+    message: EncryptedEnvelope,
+    acknowledge: (message: EncryptedEnvelope) => void
   ) => void;
 }
 
 export interface BrowserToServerEvents {
   "device:command": (
-    request: DeviceCommandRequest,
-    acknowledge: (result: DeviceCommandResult) => void
+    message: EncryptedEnvelope,
+    acknowledge: (message: EncryptedEnvelope) => void
   ) => void;
 }
 
 export interface ServerToClientEvents {
-  "devices:snapshot": (devices: DeviceState[]) => void;
-  "device:updated": (device: DeviceState) => void;
+  "devices:snapshot": (message: EncryptedEnvelope) => void;
+  "device:updated": (message: EncryptedEnvelope) => void;
 }
 
 export interface ServerToAgentEvents {
   "agent:command": (
-    command: DeviceCommand,
-    acknowledge: (result: DeviceCommandResult) => void
+    message: EncryptedEnvelope,
+    acknowledge: (message: EncryptedEnvelope) => void
   ) => void;
 }
 

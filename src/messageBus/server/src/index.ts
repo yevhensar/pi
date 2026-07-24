@@ -8,11 +8,12 @@ import type {
   DeviceCommandName,
   DeviceCommandRequest,
   DeviceCommandResult,
+  EncryptedEnvelope,
   HealthAcknowledgement,
   HealthCheck,
   ServerToSocketEvents
 } from "@pi-health/shared";
-import { deviceCommandNames } from "@pi-health/shared";
+import { createMessageCipher, deviceCommandNames, messageContexts } from "@pi-health/shared";
 import { config } from "./config.js";
 import { DeviceStore } from "./device-store.js";
 
@@ -21,30 +22,33 @@ const httpServer = http.createServer(app);
 const io = new Server<ClientToServerEvents, ServerToSocketEvents>(httpServer, {
   cors: { origin: true, credentials: true }
 });
+const cipher = await createMessageCipher(config.messageToken);
 const devices = new DeviceStore();
 
 app.disable("x-powered-by");
 app.use(express.json());
 
-app.get("/api/health", (_request, response) => {
-  response.json({
+app.get("/api/health", async (_request, response) => {
+  response.json(await cipher.encrypt(messageContexts.apiHealth, {
     status: "ok",
     timestamp: new Date().toISOString(),
     connectedDevices: devices.connectedCount()
-  });
+  }));
 });
 
-app.get("/api/devices", (_request, response) => {
-  response.json(devices.all());
+app.get("/api/devices", async (_request, response) => {
+  response.json(await cipher.encrypt(messageContexts.apiDevices, devices.all()));
 });
 
-app.get("/api/devices/:deviceId", (request, response) => {
+app.get("/api/devices/:deviceId", async (request, response) => {
   const device = devices.get(request.params.deviceId);
   if (!device) {
-    response.status(404).json({ error: "Device not found" });
+    response.status(404).json(
+      await cipher.encrypt(messageContexts.apiDevice, { error: "Device not found" })
+    );
     return;
   }
-  response.json(device);
+  response.json(await cipher.encrypt(messageContexts.apiDevice, device));
 });
 
 function isHealthCheck(value: unknown): value is HealthCheck {
@@ -100,64 +104,114 @@ function commandError(
 }
 
 io.on("connection", (socket) => {
-  socket.emit("devices:snapshot", devices.all());
+  void cipher.encrypt(messageContexts.deviceSnapshot, devices.all())
+    .then((message) => socket.emit("devices:snapshot", message))
+    .catch((error) => console.error("[crypto] could not encrypt device snapshot", error));
 
-  socket.on("device:health", (health, acknowledge) => {
+  socket.on("device:health", async (message, acknowledge) => {
     const receivedAt = new Date().toISOString();
-    const reply = (result: HealthAcknowledgement) => {
-      if (typeof acknowledge === "function") acknowledge(result);
+    const reply = async (result: HealthAcknowledgement) => {
+      if (typeof acknowledge === "function") {
+        acknowledge(await cipher.encrypt(messageContexts.healthAcknowledgement, result));
+      }
     };
 
+    let health: HealthCheck;
+    try {
+      health = await cipher.decrypt<HealthCheck>(messageContexts.health, message);
+    } catch (error) {
+      console.warn(
+        `[crypto] rejected health message from ${socket.id}: ${
+          error instanceof Error ? error.message : "unknown error"
+        }`
+      );
+      await reply({ success: false, receivedAt, error: "Encrypted health message rejected" });
+      return;
+    }
     if (!isHealthCheck(health)) {
-      reply({ success: false, receivedAt, error: "Invalid health-check payload" });
+      await reply({ success: false, receivedAt, error: "Invalid health-check payload" });
       return;
     }
 
     const state = devices.update(socket.id, health, receivedAt);
-    io.emit("device:updated", state);
-    reply({ success: true, receivedAt });
+    io.emit(
+      "device:updated",
+      await cipher.encrypt(messageContexts.deviceUpdate, state)
+    );
+    await reply({ success: true, receivedAt });
     console.log(`[health] ${health.deviceId} received at ${receivedAt}`);
   });
 
-  socket.on("device:command", (request, acknowledge) => {
-    const reply = (result: DeviceCommandResult) => {
-      if (typeof acknowledge === "function") acknowledge(result);
+  socket.on("device:command", async (message, acknowledge) => {
+    const reply = async (result: DeviceCommandResult) => {
+      if (typeof acknowledge === "function") {
+        acknowledge(await cipher.encrypt(messageContexts.browserCommandResult, result));
+      }
     };
 
+    let request: DeviceCommandRequest;
+    try {
+      request = await cipher.decrypt<DeviceCommandRequest>(
+        messageContexts.browserCommand,
+        message
+      );
+    } catch (error) {
+      console.warn(
+        `[crypto] rejected browser command from ${socket.id}: ${
+          error instanceof Error ? error.message : "unknown error"
+        }`
+      );
+      await reply(commandError({}, "Encrypted command rejected"));
+      return;
+    }
     if (!isCommandRequest(request)) {
-      reply(commandError({}, "Invalid command request"));
+      await reply(commandError({}, "Invalid command request"));
       return;
     }
 
     const targetSocketId = devices.socketIdFor(request.deviceId);
     if (!targetSocketId) {
-      reply(commandError(request, "Device is offline"));
+      await reply(commandError(request, "Device is offline"));
       return;
     }
 
     const targetSocket = io.sockets.sockets.get(targetSocketId);
     if (!targetSocket) {
-      reply(commandError(request, "Device connection is unavailable"));
+      await reply(commandError(request, "Device connection is unavailable"));
       return;
     }
 
     console.log(`[command] ${request.command} → ${request.deviceId}`);
+    const encryptedCommand = await cipher.encrypt(messageContexts.agentCommand, {
+      requestId: request.requestId,
+      command: request.command
+    });
     targetSocket.timeout(15_000).emit(
       "agent:command",
-      { requestId: request.requestId, command: request.command },
-      (error: Error | null, result?: DeviceCommandResult) => {
-        if (error || !result) {
-          reply(commandError(request, "Device command timed out"));
+      encryptedCommand,
+      async (error: Error | null, message?: EncryptedEnvelope) => {
+        if (error || !message) {
+          await reply(commandError(request, "Device command timed out"));
           return;
         }
-        reply(result);
+        try {
+          const result = await cipher.decrypt<DeviceCommandResult>(
+            messageContexts.agentCommandResult,
+            message
+          );
+          await reply(result);
+        } catch {
+          await reply(commandError(request, "Encrypted device response rejected"));
+        }
       }
     );
   });
 
   socket.on("disconnect", (reason) => {
     for (const state of devices.disconnect(socket.id)) {
-      io.emit("device:updated", state);
+      void cipher.encrypt(messageContexts.deviceUpdate, state)
+        .then((message) => io.emit("device:updated", message))
+        .catch((error) => console.error("[crypto] could not encrypt device update", error));
       console.log(`[disconnect] ${state.health.deviceId}: ${reason}`);
     }
   });

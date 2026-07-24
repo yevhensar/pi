@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import type {
   DeviceCommandName,
-  DeviceCommandResult
+  DeviceCommandResult,
+  DeviceState as SharedDeviceState,
+  EncryptedEnvelope,
+  MessageCipher
 } from "@pi-health/shared";
+import { createMessageCipher, messageContexts } from "@pi-health/shared";
 import type { DeviceState, DeviceStatus } from "./types";
 import { socket } from "./socket";
 
 const STALE_AFTER_MS = 90_000;
+const TOKEN_STORAGE_KEY = "pi-health-message-token";
 
 function statusFor(device: DeviceState, now: number): DeviceStatus {
   if (!device.socketConnected) return "offline";
@@ -46,6 +51,59 @@ function shortTime(date: string): string {
     minute: "2-digit",
     second: "2-digit"
   }).format(new Date(date));
+}
+
+function TokenGate({
+  error,
+  onUnlock
+}: {
+  error: string;
+  onUnlock: (token: string) => Promise<void>;
+}) {
+  const [token, setToken] = useState("");
+  const [unlocking, setUnlocking] = useState(false);
+
+  return (
+    <main className="unlock-page">
+      <form
+        className="unlock-card"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setUnlocking(true);
+          try {
+            await onUnlock(token);
+          } catch {
+            // The parent renders the validation error.
+          } finally {
+            setUnlocking(false);
+          }
+        }}
+      >
+        <span className="brand-icon">π</span>
+        <p className="eyebrow">Encrypted fleet</p>
+        <h1>Unlock the dashboard</h1>
+        <p>
+          Enter the shared message token. It is retained only for this browser tab.
+        </p>
+        <label>
+          Message token
+          <input
+            autoComplete="off"
+            autoFocus
+            onChange={(event) => setToken(event.target.value)}
+            placeholder="43-character token"
+            spellCheck={false}
+            type="password"
+            value={token}
+          />
+        </label>
+        {error && <div className="unlock-error">{error}</div>}
+        <button disabled={unlocking || !token.trim()} type="submit">
+          {unlocking ? "Checking…" : "Unlock"}
+        </button>
+      </form>
+    </main>
+  );
 }
 
 const commandOptions: {
@@ -322,10 +380,12 @@ function FlightControllerPanel({ device }: { device: DeviceState }) {
 
 function DeviceDetail({
   device,
+  cipher,
   now,
   onBack
 }: {
   device?: DeviceState;
+  cipher: MessageCipher;
   now: number;
   onBack: () => void;
 }) {
@@ -360,7 +420,7 @@ function DeviceDetail({
     controller.protocol === "msp" &&
     controller.armed === false;
 
-  function runCommand(command: DeviceCommandName) {
+  async function runCommand(command: DeviceCommandName) {
     if (!device || pending) return;
     if (
       command === "flight-controller.motor-test.start" &&
@@ -375,13 +435,31 @@ function DeviceDetail({
     }
     setPending(command);
     const requestId = crypto.randomUUID();
+    const encryptedRequest = await cipher.encrypt(messageContexts.browserCommand, {
+      requestId,
+      deviceId: device.health.deviceId,
+      command
+    });
     socket.timeout(17_000).emit(
       "device:command",
-      { requestId, deviceId: device.health.deviceId, command },
-      (error: Error | null, result?: DeviceCommandResult) => {
+      encryptedRequest,
+      async (error: Error | null, message?: EncryptedEnvelope) => {
         setPending(null);
         const timestamp = new Date().toISOString();
-        const completed = result ?? {
+        let result: DeviceCommandResult | undefined;
+        let decryptionError: string | undefined;
+        try {
+          if (message) {
+            result = await cipher.decrypt<DeviceCommandResult>(
+              messageContexts.browserCommandResult,
+              message
+            );
+          }
+        } catch (failure) {
+          decryptionError =
+            failure instanceof Error ? failure.message : "Encrypted response rejected";
+        }
+        const completed: DeviceCommandResult = result ?? {
           requestId,
           deviceId: device.health.deviceId,
           command,
@@ -389,7 +467,7 @@ function DeviceDetail({
           output: "",
           startedAt: timestamp,
           completedAt: timestamp,
-          error: error?.message ?? "Server did not answer"
+          error: decryptionError ?? error?.message ?? "Server did not answer"
         };
         setResults((current) => [completed, ...current].slice(0, 10));
       }
@@ -529,39 +607,88 @@ function DeviceDetail({
 
 export default function App() {
   const [devices, setDevices] = useState<Map<string, DeviceState>>(new Map());
-  const [connected, setConnected] = useState(socket.connected);
+  const [cipher, setCipher] = useState<MessageCipher | null>(null);
+  const [unlockError, setUnlockError] = useState("");
+  const [connected, setConnected] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [path, setPath] = useState(window.location.pathname);
 
   useEffect(() => {
+    const storedToken = window.sessionStorage.getItem(TOKEN_STORAGE_KEY);
+    if (storedToken) void unlockToken(storedToken);
+  }, []);
+
+  async function unlockToken(token: string) {
+    try {
+      const nextCipher = await createMessageCipher(token.trim());
+      window.sessionStorage.setItem(TOKEN_STORAGE_KEY, token.trim());
+      setUnlockError("");
+      setCipher(nextCipher);
+    } catch (error) {
+      window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+      setUnlockError(error instanceof Error ? error.message : "Invalid message token");
+      throw error;
+    }
+  }
+
+  function lockDashboard() {
+    socket.disconnect();
+    window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+    setDevices(new Map());
+    setConnected(false);
+    setCipher(null);
+  }
+
+  useEffect(() => {
+    if (!cipher) return;
     const onConnect = () => setConnected(true);
     const onDisconnect = () => setConnected(false);
-    const onSnapshot = (snapshot: DeviceState[]) => {
-      setDevices(new Map(snapshot.map((device) => [device.health.deviceId, device])));
-      setLastUpdate(new Date());
+    const onSnapshot = async (message: EncryptedEnvelope) => {
+      try {
+        const snapshot = await cipher.decrypt<SharedDeviceState[]>(
+          messageContexts.deviceSnapshot,
+          message
+        );
+        setDevices(new Map(snapshot.map((device) => [device.health.deviceId, device])));
+        setLastUpdate(new Date());
+        setUnlockError("");
+      } catch {
+        setUnlockError("The server rejected this token or returned an invalid encrypted message.");
+        lockDashboard();
+      }
     };
-    const onUpdate = (device: DeviceState) => {
-      setDevices((current) => {
-        const next = new Map(current);
-        next.set(device.health.deviceId, device);
-        return next;
-      });
-      setLastUpdate(new Date());
+    const onUpdate = async (message: EncryptedEnvelope) => {
+      try {
+        const device = await cipher.decrypt<SharedDeviceState>(
+          messageContexts.deviceUpdate,
+          message
+        );
+        setDevices((current) => {
+          const next = new Map(current);
+          next.set(device.health.deviceId, device);
+          return next;
+        });
+        setLastUpdate(new Date());
+      } catch {
+        setUnlockError("An encrypted device update could not be authenticated.");
+      }
     };
 
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
     socket.on("devices:snapshot", onSnapshot);
     socket.on("device:updated", onUpdate);
+    socket.connect();
 
     return () => {
       socket.off("connect", onConnect);
       socket.off("disconnect", onDisconnect);
       socket.off("devices:snapshot", onSnapshot);
       socket.off("device:updated", onUpdate);
+      socket.disconnect();
     };
-  }, []);
+  }, [cipher]);
 
   useEffect(() => {
     const onPopState = () => setPath(window.location.pathname);
@@ -593,6 +720,10 @@ export default function App() {
   const detailMatch = path.match(/^\/devices\/([^/]+)$/);
   const detailDeviceId = detailMatch ? decodeURIComponent(detailMatch[1]) : null;
 
+  if (!cipher) {
+    return <TokenGate error={unlockError} onUnlock={unlockToken} />;
+  }
+
   return (
     <main>
       <header className="topbar">
@@ -600,14 +731,18 @@ export default function App() {
           <span className="brand-icon">π</span>
           <span>Pi Health <b>Monitor</b></span>
         </a>
-        <div className={`server-state ${connected ? "is-connected" : ""}`}>
-          <i />
-          {connected ? "Live connection" : "Reconnecting"}
+        <div className="topbar-actions">
+          <div className={`server-state ${connected ? "is-connected" : ""}`}>
+            <i />
+            {connected ? "Encrypted connection" : "Reconnecting"}
+          </div>
+          <button className="lock-button" onClick={lockDashboard}>Lock</button>
         </div>
       </header>
 
       {detailDeviceId ? (
         <DeviceDetail
+          cipher={cipher}
           device={devices.get(detailDeviceId)}
           now={now}
           onBack={() => navigate("/")}

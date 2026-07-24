@@ -36,10 +36,13 @@ npm run build
 npm start
 ```
 
-Open `http://localhost:3000`. To start a test agent in another terminal:
+Open `http://localhost:3000` and enter the value printed by
+`npm run --silent token:show`. To start a test agent in another terminal:
 
 ```bash
-SERVER_URL=http://127.0.0.1:3000 DEVICE_ID=pi-test npm run dev:agent
+SERVER_URL=http://127.0.0.1:3000 \
+DEVICE_ID=pi-test \
+npm run dev:agent
 ```
 
 Development commands:
@@ -54,6 +57,40 @@ npm run typecheck
 
 Vite serves the UI at `http://localhost:5173` and proxies API and Socket.IO
 traffic to port 3000.
+
+## Message encryption
+
+All application payloads use one shared 32-byte token and AES-256-GCM
+authenticated encryption. This includes health reports, snapshots, device
+updates, commands, command results, acknowledgements, and API JSON responses.
+Every message uses a random nonce, event-specific authenticated context, and a
+unique encrypted message ID that rejects replay within each running process.
+
+Socket.IO transport framing, event names, connection timing, and the static
+dashboard assets are not hidden. Use HTTPS/WSS as well if transport metadata
+must be protected.
+
+The ignored `config/message-token.json` file is created automatically by a
+normal `npm run deploy:clients` or `npm run deploy:server`. It is installed into
+root-owned, mode-`0640` systemd environment files and is never printed by
+deployment:
+
+```bash
+npm run token:init
+npm run --silent token:show
+```
+
+The dashboard asks for this token and retains it only in the current browser
+tab. To rotate the token:
+
+```bash
+npm run token:regenerate
+npm run deploy:server -- --config config/server.json
+npm run deploy:clients
+```
+
+Rotation intentionally invalidates every old browser session and client.
+Redeploy the local server and every Pi immediately after regeneration.
 
 ## API and events
 
@@ -167,8 +204,14 @@ Build first, copy the project to the Pi, then run:
 ```bash
 sudo ./scripts/install-pi.sh \
   --server-url http://192.168.1.50:3000 \
-  --device-id pi-5-01
+  --device-id pi-5-01 \
+  --message-token-file /path/to/raw-message-token
 ```
+
+The SSH deployment scripts prepare the raw token file automatically. Direct
+installation requires a file containing only the token; generate the JSON
+token locally with `npm run token:init`, then extract its `.token` value into a
+protected temporary file on the Pi.
 
 ## Deploy one client over SSH
 

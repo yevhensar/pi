@@ -9,6 +9,7 @@ if (!Number.isFinite(healthIntervalMs) || healthIntervalMs < 1000) {
 export const config = {
   serverUrl: process.env.SERVER_URL ?? "http://127.0.0.1:3000",
   deviceId: process.env.DEVICE_ID?.trim() || os.hostname(),
+  messageToken: process.env.MESSAGE_TOKEN?.trim() || "",
   wifiInterface: process.env.WIFI_INTERFACE?.trim() || undefined,
   flightControllerEnabled: process.env.FLIGHT_CONTROLLER_ENABLED !== "false",
   flightControllerPython:
@@ -38,3 +39,7 @@ export const config = {
   ),
   healthIntervalMs
 };
+
+if (!config.messageToken) {
+  throw new Error("MESSAGE_TOKEN is required");
+}

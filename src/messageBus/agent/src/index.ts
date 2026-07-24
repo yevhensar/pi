@@ -1,15 +1,20 @@
 import { io, type Socket } from "socket.io-client";
 import type {
   ClientToServerEvents,
+  DeviceCommand,
+  DeviceCommandResult,
+  EncryptedEnvelope,
   HealthAcknowledgement,
   ServerToSocketEvents
 } from "@pi-health/shared";
+import { createMessageCipher, messageContexts } from "@pi-health/shared";
 import { config } from "./config.js";
 import { executeCommand } from "./commands.js";
 import { collectFlightControllerHealth } from "./flight-controller.js";
 import { collectHealth } from "./health.js";
 
 const APP_VERSION = "1.0.0";
+const cipher = await createMessageCipher(config.messageToken);
 const socket: Socket<ServerToSocketEvents, ClientToServerEvents> = io(config.serverUrl, {
   reconnection: true,
   reconnectionAttempts: Infinity,
@@ -34,13 +39,29 @@ async function transmit() {
     flightController
   );
   console.log(`[health] sending ${health.deviceId} at ${health.timestamp}`);
+  const encryptedHealth = await cipher.encrypt(messageContexts.health, health);
   socket.timeout(10_000).emit(
     "device:health",
-    health,
-    (error: Error | null, result?: HealthAcknowledgement) => {
+    encryptedHealth,
+    async (error: Error | null, message?: EncryptedEnvelope) => {
       if (error) {
         console.error("[health] acknowledgement timed out", error.message);
+        transmissionInProgress = false;
         return;
+      }
+      let result: HealthAcknowledgement | undefined;
+      try {
+        if (message) {
+          result = await cipher.decrypt<HealthAcknowledgement>(
+            messageContexts.healthAcknowledgement,
+            message
+          );
+        }
+      } catch (decryptionError) {
+        console.error(
+          "[health] encrypted acknowledgement rejected",
+          decryptionError instanceof Error ? decryptionError.message : "unknown error"
+        );
       }
       if (result?.success) {
         console.log(`[health] acknowledged at ${result.receivedAt}`);
@@ -70,10 +91,20 @@ socket.on("connect_error", (error) => {
 });
 
 socket.on("agent:command", async (command, acknowledge) => {
-  console.log(`[command] ${command.command} (${command.requestId})`);
-  const result = await executeCommand(config.deviceId, command);
-  acknowledge(result);
-  console.log(`[command] ${command.command} ${result.success ? "completed" : "failed"}`);
+  let request: DeviceCommand;
+  try {
+    request = await cipher.decrypt<DeviceCommand>(messageContexts.agentCommand, command);
+  } catch (error) {
+    console.error(
+      "[command] encrypted command rejected",
+      error instanceof Error ? error.message : "unknown error"
+    );
+    return;
+  }
+  console.log(`[command] ${request.command} (${request.requestId})`);
+  const result: DeviceCommandResult = await executeCommand(config.deviceId, request);
+  acknowledge(await cipher.encrypt(messageContexts.agentCommandResult, result));
+  console.log(`[command] ${request.command} ${result.success ? "completed" : "failed"}`);
 });
 
 function shutdown(signal: string) {

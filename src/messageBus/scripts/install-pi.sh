@@ -15,6 +15,8 @@ FLIGHT_CONTROLLER_BAUD=115200
 MOTOR_TEST_ENABLED=false
 MOTOR_TEST_OUTPUT=1050
 MOTOR_TEST_DURATION_MS=2000
+MESSAGE_TOKEN_FILE=
+MESSAGE_TOKEN=
 SOURCE_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 usage() {
@@ -34,6 +36,7 @@ while [[ $# -gt 0 ]]; do
     --motor-test-enabled) MOTOR_TEST_ENABLED=${2:-}; shift 2 ;;
     --motor-test-output) MOTOR_TEST_OUTPUT=${2:-}; shift 2 ;;
     --motor-test-duration-ms) MOTOR_TEST_DURATION_MS=${2:-}; shift 2 ;;
+    --message-token-file) MESSAGE_TOKEN_FILE=${2:-}; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Error: unknown argument: $1" >&2; usage; exit 1 ;;
   esac
@@ -43,6 +46,11 @@ done
   { echo "Error: --server-url must be an http(s) URL." >&2; exit 1; }
 [[ $DEVICE_ID =~ ^[A-Za-z0-9._-]+$ ]] ||
   { echo "Error: --device-id may contain letters, digits, dots, underscores, and dashes." >&2; exit 1; }
+[[ -r $MESSAGE_TOKEN_FILE ]] ||
+  { echo "Error: --message-token-file must name a readable file." >&2; exit 1; }
+MESSAGE_TOKEN=$(tr -d '\r\n' < "$MESSAGE_TOKEN_FILE")
+[[ $MESSAGE_TOKEN =~ ^[A-Za-z0-9_-]{43}$ ]] ||
+  { echo "Error: invalid message token." >&2; exit 1; }
 [[ -z $WIFI_INTERFACE || $WIFI_INTERFACE =~ ^[A-Za-z0-9._:-]+$ ]] ||
   { echo "Error: invalid Wi-Fi interface." >&2; exit 1; }
 [[ $FLIGHT_CONTROLLER_ENABLED == true || $FLIGHT_CONTROLLER_ENABLED == false ]] ||
@@ -74,6 +82,7 @@ if [[ $EUID -ne 0 ]]; then
     --motor-test-enabled "$MOTOR_TEST_ENABLED"
     --motor-test-output "$MOTOR_TEST_OUTPUT"
     --motor-test-duration-ms "$MOTOR_TEST_DURATION_MS"
+    --message-token-file "$MESSAGE_TOKEN_FILE"
   )
   exec sudo -- "${sudo_arguments[@]}"
 fi
@@ -111,7 +120,8 @@ install_nodejs() {
 node_is_supported || install_nodejs
 
 SOURCE_DIR=$(realpath "$SOURCE_DIR")
-[[ -d $SOURCE_DIR/agent/dist && -f $SOURCE_DIR/agent/package.json ]] ||
+[[ -d $SOURCE_DIR/agent/dist && -f $SOURCE_DIR/agent/package.json &&
+   -d $SOURCE_DIR/shared/dist && -f $SOURCE_DIR/shared/package.json ]] ||
   { echo "Error: compiled agent not found in $SOURCE_DIR. Run npm run build first." >&2; exit 1; }
 
 echo "Installing Pi health agent..."
@@ -147,12 +157,20 @@ else
   runuser -u "$SERVICE_USER" -- bash -c "cd '$APP_DIR' && npm install --omit=dev --ignore-scripts"
 fi
 
+rm -rf "$APP_DIR/node_modules/@pi-health/shared"
+install -d -o "$SERVICE_USER" -g "$SERVICE_USER" \
+  "$APP_DIR/node_modules/@pi-health/shared"
+cp -a "$SOURCE_DIR/shared/dist" "$APP_DIR/node_modules/@pi-health/shared/dist"
+cp "$SOURCE_DIR/shared/package.json" "$APP_DIR/node_modules/@pi-health/shared/package.json"
+chown -R "$SERVICE_USER:$SERVICE_USER" "$APP_DIR/node_modules/@pi-health/shared"
+
 install -d -o root -g "$SERVICE_USER" -m 0750 "$ENV_DIR"
 {
   printf 'SERVER_URL=%s\n' "$SERVER_URL"
   printf 'DEVICE_ID=%s\n' "$DEVICE_ID"
   printf 'HEALTH_INTERVAL_MS=60000\n'
   printf 'NODE_ENV=production\n'
+  printf 'MESSAGE_TOKEN=%s\n' "$MESSAGE_TOKEN"
   [[ -z $WIFI_INTERFACE ]] || printf 'WIFI_INTERFACE=%s\n' "$WIFI_INTERFACE"
   printf 'FLIGHT_CONTROLLER_ENABLED=%s\n' "$FLIGHT_CONTROLLER_ENABLED"
   printf 'FLIGHT_CONTROLLER_DEVICE=%s\n' "$FLIGHT_CONTROLLER_DEVICE"
