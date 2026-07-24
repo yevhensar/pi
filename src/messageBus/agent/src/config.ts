@@ -27,5 +27,14 @@ export const config = {
     process.env.FLIGHT_CONTROLLER_TIMEOUT_MS ?? "8000",
     10
   ),
+  motorTestEnabled: process.env.FLIGHT_CONTROLLER_MOTOR_TEST_ENABLED === "true",
+  motorTestOutput: Number.parseInt(
+    process.env.FLIGHT_CONTROLLER_MOTOR_TEST_OUTPUT ?? "1050",
+    10
+  ),
+  motorTestDurationMs: Number.parseInt(
+    process.env.FLIGHT_CONTROLLER_MOTOR_TEST_DURATION_MS ?? "2000",
+    10
+  ),
   healthIntervalMs
 };

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read a compact, read-only MAVLink health snapshot from a USB flight controller."""
+"""Read flight-controller health and run guarded Betaflight MSP motor tests."""
 
 import argparse
 import glob
@@ -15,12 +15,14 @@ MSP_FC_VARIANT = 2
 MSP_FC_VERSION = 3
 MSP_BOARD_INFO = 4
 MSP_STATUS = 101
+MSP_MOTOR = 104
 MSP_RAW_GPS = 106
 MSP_ATTITUDE = 108
 MSP_ALTITUDE = 109
 MSP_ANALOG = 110
 MSP_BOXIDS = 119
 MSP_BATTERY_STATE = 130
+MSP_SET_MOTOR = 214
 
 
 def result(status, **values):
@@ -84,6 +86,13 @@ def parse_args():
     parser.add_argument("--protocol", choices=("auto", "mavlink", "msp"), default="auto")
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=8)
+    parser.add_argument(
+        "--action",
+        choices=("health", "motor-test-start", "motor-test-stop"),
+        default="health",
+    )
+    parser.add_argument("--output", type=int, default=1050)
+    parser.add_argument("--duration", type=float, default=2)
     return parser.parse_args()
 
 
@@ -102,9 +111,14 @@ class MspClient:
     def close(self):
         self.serial.close()
 
-    def command(self, code, timeout=2):
-        checksum = code
-        self.serial.write(b"$M<" + bytes([0, code, checksum]))
+    def command(self, code, payload=b"", timeout=2):
+        size = len(payload)
+        checksum = size ^ code
+        for byte in payload:
+            checksum ^= byte
+        self.serial.write(
+            b"$M<" + bytes([size, code]) + payload + bytes([checksum])
+        )
         self.serial.flush()
         deadline = time.monotonic() + min(timeout, 2)
 
@@ -267,6 +281,10 @@ def read_msp_health(device, baud, timeout):
         altitude = unpack("<ih", optional_command(client, MSP_ALTITUDE))
         if altitude:
             payload["relativeAltitudeM"] = altitude[0] / 100
+
+        motors = optional_command(client, MSP_MOTOR)
+        if len(motors) >= 2 and len(motors) % 2 == 0:
+            payload["motorCount"] = min(8, len(motors) // 2)
 
         if payload.get("gpsHealthy") is False and payload.get("gpsPresent"):
             payload["status"] = "warning"
@@ -447,10 +465,103 @@ def read_health(device, baud, timeout, protocol):
     return first
 
 
+def msp_motor_state(client):
+    status = client.command(MSP_STATUS)
+    box_ids = list(client.command(MSP_BOXIDS))
+    if len(status) < 10 or 0 not in box_ids:
+        raise MspError("Could not verify Betaflight armed state")
+    mode_flags = unpack("<I", status, 6)[0]
+    armed = bool(mode_flags & (1 << box_ids.index(0)))
+    motors = client.command(MSP_MOTOR)
+    if len(motors) < 2 or len(motors) % 2:
+        raise MspError("Betaflight did not report a valid motor count")
+    return armed, min(8, len(motors) // 2)
+
+
+def set_msp_motors(client, motor_count, output):
+    values = [int(output)] * motor_count
+    client.command(MSP_SET_MOTOR, struct.pack("<" + ("H" * motor_count), *values))
+
+
+def run_motor_action(device, baud, timeout, action, output, duration):
+    resolved_device = autodetect_device() if device == "auto" else device
+    if not resolved_device or not os.path.exists(resolved_device):
+        return {"success": False, "error": "Betaflight serial device is unavailable"}
+
+    client = None
+    try:
+        client = MspClient(resolved_device, baud, timeout)
+        api = client.command(MSP_API_VERSION)
+        if len(api) < 3:
+            raise MspError("Device did not return a valid MSP API version")
+        armed, motor_count = msp_motor_state(client)
+        if armed:
+            raise MspError("Motor test refused because the flight controller is armed")
+
+        if action == "motor-test-stop":
+            for _ in range(3):
+                set_msp_motors(client, motor_count, 1000)
+                time.sleep(0.05)
+            return {
+                "success": True,
+                "action": action,
+                "motorCount": motor_count,
+                "output": 1000,
+                "message": f"Stop output sent to {motor_count} motors",
+            }
+
+        safe_output = max(1000, min(int(output), 1075))
+        safe_duration = max(0.5, min(float(duration), 3.0))
+        deadline = time.monotonic() + safe_duration
+        try:
+            while time.monotonic() < deadline:
+                set_msp_motors(client, motor_count, safe_output)
+                time.sleep(0.1)
+        finally:
+            for _ in range(5):
+                try:
+                    set_msp_motors(client, motor_count, 1000)
+                except Exception:
+                    pass
+                time.sleep(0.05)
+
+        return {
+            "success": True,
+            "action": action,
+            "motorCount": motor_count,
+            "output": safe_output,
+            "durationSeconds": safe_duration,
+            "message": (
+                f"Low-output motor test completed for {motor_count} motors; "
+                "minimum output was sent automatically"
+            ),
+        }
+    except Exception as error:
+        return {"success": False, "action": action, "error": str(error)}
+    finally:
+        if client is not None:
+            client.close()
+
+
 def main():
     args = parse_args()
     if args.baud < 1200 or args.baud > 4_000_000:
         emit(result("error", error="Baud must be between 1200 and 4000000"))
+        return
+    if args.action != "health":
+        if args.protocol == "mavlink":
+            emit({"success": False, "action": args.action, "error": "Motor test requires Betaflight MSP"})
+            return
+        emit(
+            run_motor_action(
+                args.device,
+                args.baud,
+                max(1, args.timeout),
+                args.action,
+                args.output,
+                args.duration,
+            )
+        )
         return
     emit(read_health(args.device, args.baud, max(1, args.timeout), args.protocol))
 

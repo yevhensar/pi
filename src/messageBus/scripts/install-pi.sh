@@ -12,6 +12,9 @@ FLIGHT_CONTROLLER_ENABLED=true
 FLIGHT_CONTROLLER_DEVICE=auto
 FLIGHT_CONTROLLER_PROTOCOL=auto
 FLIGHT_CONTROLLER_BAUD=115200
+MOTOR_TEST_ENABLED=false
+MOTOR_TEST_OUTPUT=1050
+MOTOR_TEST_DURATION_MS=2000
 SOURCE_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 usage() {
@@ -28,6 +31,9 @@ while [[ $# -gt 0 ]]; do
     --flight-controller-device) FLIGHT_CONTROLLER_DEVICE=${2:-}; shift 2 ;;
     --flight-controller-protocol) FLIGHT_CONTROLLER_PROTOCOL=${2:-}; shift 2 ;;
     --flight-controller-baud) FLIGHT_CONTROLLER_BAUD=${2:-}; shift 2 ;;
+    --motor-test-enabled) MOTOR_TEST_ENABLED=${2:-}; shift 2 ;;
+    --motor-test-output) MOTOR_TEST_OUTPUT=${2:-}; shift 2 ;;
+    --motor-test-duration-ms) MOTOR_TEST_DURATION_MS=${2:-}; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Error: unknown argument: $1" >&2; usage; exit 1 ;;
   esac
@@ -48,6 +54,14 @@ done
 [[ $FLIGHT_CONTROLLER_BAUD =~ ^[0-9]+$ ]] &&
   (( FLIGHT_CONTROLLER_BAUD >= 1200 && FLIGHT_CONTROLLER_BAUD <= 4000000 )) ||
   { echo "Error: invalid flight-controller baud." >&2; exit 1; }
+[[ $MOTOR_TEST_ENABLED == true || $MOTOR_TEST_ENABLED == false ]] ||
+  { echo "Error: invalid motor-test enabled value." >&2; exit 1; }
+[[ $MOTOR_TEST_OUTPUT =~ ^[0-9]+$ ]] &&
+  (( MOTOR_TEST_OUTPUT >= 1000 && MOTOR_TEST_OUTPUT <= 1075 )) ||
+  { echo "Error: invalid motor-test output." >&2; exit 1; }
+[[ $MOTOR_TEST_DURATION_MS =~ ^[0-9]+$ ]] &&
+  (( MOTOR_TEST_DURATION_MS >= 500 && MOTOR_TEST_DURATION_MS <= 3000 )) ||
+  { echo "Error: invalid motor-test duration." >&2; exit 1; }
 
 if [[ $EUID -ne 0 ]]; then
   sudo_arguments=("$0" --server-url "$SERVER_URL" --device-id "$DEVICE_ID" --source-dir "$SOURCE_DIR")
@@ -57,6 +71,9 @@ if [[ $EUID -ne 0 ]]; then
     --flight-controller-device "$FLIGHT_CONTROLLER_DEVICE"
     --flight-controller-protocol "$FLIGHT_CONTROLLER_PROTOCOL"
     --flight-controller-baud "$FLIGHT_CONTROLLER_BAUD"
+    --motor-test-enabled "$MOTOR_TEST_ENABLED"
+    --motor-test-output "$MOTOR_TEST_OUTPUT"
+    --motor-test-duration-ms "$MOTOR_TEST_DURATION_MS"
   )
   exec sudo -- "${sudo_arguments[@]}"
 fi
@@ -141,6 +158,9 @@ install -d -o root -g "$SERVICE_USER" -m 0750 "$ENV_DIR"
   printf 'FLIGHT_CONTROLLER_DEVICE=%s\n' "$FLIGHT_CONTROLLER_DEVICE"
   printf 'FLIGHT_CONTROLLER_PROTOCOL=%s\n' "$FLIGHT_CONTROLLER_PROTOCOL"
   printf 'FLIGHT_CONTROLLER_BAUD=%s\n' "$FLIGHT_CONTROLLER_BAUD"
+  printf 'FLIGHT_CONTROLLER_MOTOR_TEST_ENABLED=%s\n' "$MOTOR_TEST_ENABLED"
+  printf 'FLIGHT_CONTROLLER_MOTOR_TEST_OUTPUT=%s\n' "$MOTOR_TEST_OUTPUT"
+  printf 'FLIGHT_CONTROLLER_MOTOR_TEST_DURATION_MS=%s\n' "$MOTOR_TEST_DURATION_MS"
 } > "$ENV_DIR/agent.env"
 chown root:"$SERVICE_USER" "$ENV_DIR/agent.env"
 chmod 0640 "$ENV_DIR/agent.env"

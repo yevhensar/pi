@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import type { FlightControllerHealth } from "@pi-health/shared";
 import { config } from "./config.js";
+import { withFlightControllerSerial } from "./flight-controller-lock.js";
 
 function unavailable(error: string): FlightControllerHealth {
   return {
@@ -17,7 +18,7 @@ export function collectFlightControllerHealth(): Promise<FlightControllerHealth>
     return Promise.resolve(unavailable("Flight-controller monitoring is disabled"));
   }
 
-  return new Promise((resolve) => {
+  return withFlightControllerSerial(() => new Promise((resolve) => {
     execFile(
       config.flightControllerPython,
       [
@@ -39,6 +40,8 @@ export function collectFlightControllerHealth(): Promise<FlightControllerHealth>
       (error, stdout, stderr) => {
         try {
           const parsed = JSON.parse(stdout.trim()) as FlightControllerHealth;
+          parsed.motorTestEnabled =
+            config.motorTestEnabled && parsed.protocol === "msp";
           resolve(parsed);
         } catch {
           resolve(
@@ -49,5 +52,5 @@ export function collectFlightControllerHealth(): Promise<FlightControllerHealth>
         }
       }
     );
-  });
+  }));
 }

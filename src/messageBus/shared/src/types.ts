@@ -32,6 +32,8 @@ export type FlightControllerHealth = {
   barometerPresent?: boolean;
   magnetometerPresent?: boolean;
   gpsPresent?: boolean;
+  motorCount?: number;
+  motorTestEnabled?: boolean;
   preArmFailures: string[];
   error?: string;
 };
@@ -67,7 +69,9 @@ export const deviceCommandNames = [
   "system.info",
   "disk.usage",
   "network.interfaces",
-  "processes.top"
+  "processes.top",
+  "flight-controller.motor-test.start",
+  "flight-controller.motor-test.stop"
 ] as const;
 
 export type DeviceCommandName = (typeof deviceCommandNames)[number];

@@ -13,6 +13,9 @@ FLIGHT_CONTROLLER_ENABLED=true
 FLIGHT_CONTROLLER_DEVICE=auto
 FLIGHT_CONTROLLER_PROTOCOL=auto
 FLIGHT_CONTROLLER_BAUD=115200
+MOTOR_TEST_ENABLED=false
+MOTOR_TEST_OUTPUT=1050
+MOTOR_TEST_DURATION_MS=2000
 SSH_PORT=22
 SKIP_BUILD=false
 CHECK_CONFIG=false
@@ -66,6 +69,9 @@ if [[ -n $CONFIG_FILE ]]; then
   FLIGHT_CONTROLLER_DEVICE=$(jq -r '.flight_controller.device // "auto"' "$CONFIG_FILE")
   FLIGHT_CONTROLLER_PROTOCOL=$(jq -r '.flight_controller.protocol // "auto"' "$CONFIG_FILE")
   FLIGHT_CONTROLLER_BAUD=$(jq -r '.flight_controller.baud // 115200' "$CONFIG_FILE")
+  MOTOR_TEST_ENABLED=$(jq -r '.flight_controller.motor_test.enabled // false' "$CONFIG_FILE")
+  MOTOR_TEST_OUTPUT=$(jq -r '.flight_controller.motor_test.output // 1050' "$CONFIG_FILE")
+  MOTOR_TEST_DURATION_MS=$(jq -r '.flight_controller.motor_test.duration_ms // 2000' "$CONFIG_FILE")
   SSH_PORT=$(jq -r '.ssh_port // 22' "$CONFIG_FILE")
   ROLE=$(jq -r '.role // "client"' "$CONFIG_FILE")
 
@@ -115,6 +121,14 @@ done
 [[ $FLIGHT_CONTROLLER_BAUD =~ ^[0-9]+$ ]] &&
   (( FLIGHT_CONTROLLER_BAUD >= 1200 && FLIGHT_CONTROLLER_BAUD <= 4000000 )) ||
   { echo "Error: invalid flight-controller baud." >&2; exit 1; }
+[[ $MOTOR_TEST_ENABLED == true || $MOTOR_TEST_ENABLED == false ]] ||
+  { echo "Error: flight_controller.motor_test.enabled must be true or false." >&2; exit 1; }
+[[ $MOTOR_TEST_OUTPUT =~ ^[0-9]+$ ]] &&
+  (( MOTOR_TEST_OUTPUT >= 1000 && MOTOR_TEST_OUTPUT <= 1075 )) ||
+  { echo "Error: motor-test output must be between 1000 and 1075." >&2; exit 1; }
+[[ $MOTOR_TEST_DURATION_MS =~ ^[0-9]+$ ]] &&
+  (( MOTOR_TEST_DURATION_MS >= 500 && MOTOR_TEST_DURATION_MS <= 3000 )) ||
+  { echo "Error: motor-test duration_ms must be between 500 and 3000." >&2; exit 1; }
 
 if [[ $CHECK_CONFIG == true ]]; then
   echo "Configuration is valid."
@@ -124,6 +138,7 @@ if [[ $CHECK_CONFIG == true ]]; then
   echo "Server URL: $SERVER_URL"
   echo "Wi-Fi interface: ${WIFI_INTERFACE:-all interfaces}"
   echo "Flight controller: $([[ $FLIGHT_CONTROLLER_ENABLED == true ]] && echo "$FLIGHT_CONTROLLER_PROTOCOL on $FLIGHT_CONTROLLER_DEVICE at $FLIGHT_CONTROLLER_BAUD baud" || echo disabled)"
+  echo "Motor test: $([[ $MOTOR_TEST_ENABLED == true ]] && echo "enabled ($MOTOR_TEST_OUTPUT for ${MOTOR_TEST_DURATION_MS}ms)" || echo disabled)"
   echo "SSH authentication: $([[ -n $SSH_PASSWORD ]] && echo password || echo keys/interactive)"
   echo "sudo authentication: $([[ -n $SUDO_PASSWORD ]] && echo configured || echo passwordless/interactive)"
   exit 0
@@ -191,6 +206,7 @@ if [[ -n $WIFI_INTERFACE ]]; then
   INSTALL_COMMAND+=" --wifi-interface '$WIFI_INTERFACE'"
 fi
 INSTALL_COMMAND+=" --flight-controller-enabled '$FLIGHT_CONTROLLER_ENABLED' --flight-controller-device '$FLIGHT_CONTROLLER_DEVICE' --flight-controller-protocol '$FLIGHT_CONTROLLER_PROTOCOL' --flight-controller-baud '$FLIGHT_CONTROLLER_BAUD'"
+INSTALL_COMMAND+=" --motor-test-enabled '$MOTOR_TEST_ENABLED' --motor-test-output '$MOTOR_TEST_OUTPUT' --motor-test-duration-ms '$MOTOR_TEST_DURATION_MS'"
 
 if [[ -n $SUDO_PASSWORD ]]; then
   printf '%s\n' "$SUDO_PASSWORD" | "${SSH_COMMAND[@]}" -tt "$REMOTE_HOST" "$INSTALL_COMMAND"

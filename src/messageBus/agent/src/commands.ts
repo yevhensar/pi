@@ -4,13 +4,15 @@ import type {
   DeviceCommandName,
   DeviceCommandResult
 } from "@pi-health/shared";
+import { config } from "./config.js";
+import { tryWithFlightControllerSerial } from "./flight-controller-lock.js";
 
 type CommandDefinition = {
   executable: string;
   arguments: string[];
 };
 
-const commands: Record<DeviceCommandName, CommandDefinition> = {
+const commands: Partial<Record<DeviceCommandName, CommandDefinition>> = {
   "system.info": {
     executable: "uname",
     arguments: ["-a"]
@@ -54,6 +56,66 @@ export async function executeCommand(
   const definition = commands[request.command];
 
   try {
+    if (request.command === "flight-controller.motor-test.start") {
+      if (!config.motorTestEnabled) {
+        throw new Error("Motor test is disabled in the Pi deployment configuration");
+      }
+      const output = await tryWithFlightControllerSerial(() => run(config.flightControllerPython, [
+        config.flightControllerScript,
+        "--device",
+        config.flightControllerDevice,
+        "--protocol",
+        config.flightControllerProtocol,
+        "--baud",
+        String(config.flightControllerBaud),
+        "--timeout",
+        String(config.flightControllerTimeoutMs / 1000),
+        "--action",
+        "motor-test-start",
+        "--output",
+        String(config.motorTestOutput),
+        "--duration",
+        String(config.motorTestDurationMs / 1000)
+      ]));
+      const response = JSON.parse(output) as { success: boolean; message?: string; error?: string };
+      if (!response.success) throw new Error(response.error ?? "Motor test failed");
+      return {
+        ...request,
+        deviceId,
+        success: true,
+        output: response.message ?? "Motor test completed and stopped",
+        startedAt,
+        completedAt: new Date().toISOString()
+      };
+    }
+
+    if (request.command === "flight-controller.motor-test.stop") {
+      const output = await tryWithFlightControllerSerial(() => run(config.flightControllerPython, [
+        config.flightControllerScript,
+        "--device",
+        config.flightControllerDevice,
+        "--protocol",
+        config.flightControllerProtocol,
+        "--baud",
+        String(config.flightControllerBaud),
+        "--timeout",
+        String(config.flightControllerTimeoutMs / 1000),
+        "--action",
+        "motor-test-stop"
+      ]));
+      const response = JSON.parse(output) as { success: boolean; message?: string; error?: string };
+      if (!response.success) throw new Error(response.error ?? "Stop command failed");
+      return {
+        ...request,
+        deviceId,
+        success: true,
+        output: response.message ?? "Minimum motor output sent",
+        startedAt,
+        completedAt: new Date().toISOString()
+      };
+    }
+
+    if (!definition) throw new Error("Unsupported command");
     const output = await run(definition.executable, definition.arguments);
     return {
       ...request,

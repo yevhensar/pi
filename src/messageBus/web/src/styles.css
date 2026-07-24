@@ -187,9 +187,16 @@ main {
 .command-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .command-grid button { padding: 16px; min-height: 88px; border: 1px solid #dce4dc; border-radius: 13px; background: #f6f8f4; cursor: pointer; text-align: left; transition: border-color .15s, background .15s; }
 .command-grid button:hover:not(:disabled) { border-color: #8eb39d; background: #edf5ea; }
+.command-grid button.motor-start { border-color: #deb879; background: #fff8e9; }
+.command-grid button.motor-start:hover:not(:disabled) { border-color: #c78c2e; background: #fff1cf; }
+.command-grid button.motor-stop { border-color: #dca99e; background: #fff3ef; }
+.command-grid button.motor-stop:hover:not(:disabled) { border-color: #bd6552; background: #fce5df; }
 .command-grid button:disabled { cursor: not-allowed; opacity: .5; }
 .command-grid button span { display: block; color: var(--ink); font-size: 12px; font-weight: 800; }
 .command-grid button small { display: block; margin-top: 8px; color: var(--muted); font-size: 9px; line-height: 1.4; }
+.motor-lock { margin: -5px 0 16px; padding: 11px 13px; display: grid; gap: 4px; border: 1px solid #ead9b8; border-radius: 10px; background: #fff9eb; }
+.motor-lock strong { color: #7c5718; font-size: 10px; }
+.motor-lock span { color: #856f47; font-size: 9px; line-height: 1.45; }
 .command-history { margin-top: 16px; }
 .console-empty { margin-top: 22px; padding: 34px; border: 1px dashed #ced7cf; border-radius: 13px; color: var(--muted); text-align: center; font-size: 11px; }
 .command-result { margin-top: 16px; overflow: hidden; border: 1px solid #dfe5df; border-radius: 13px; background: #14201b; }

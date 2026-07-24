@@ -47,9 +47,11 @@ class FakeMspClient:
             ),
             health.MSP_ATTITUDE: struct.pack("<hhh", 12, -8, 90),
             health.MSP_ALTITUDE: struct.pack("<ih", 1234, -5),
+            health.MSP_MOTOR: struct.pack("<HHHH", 1000, 1000, 1000, 1000),
         }
 
-    def command(self, code, timeout=2):
+    def command(self, code, payload=b"", timeout=2):
+        del payload
         del timeout
         if code not in self.responses:
             raise health.MspError("unsupported")
@@ -80,11 +82,73 @@ class FlightControllerHealthTest(unittest.TestCase):
         self.assertTrue(snapshot["gyroPresent"])
         self.assertTrue(snapshot["accelerometerPresent"])
         self.assertTrue(snapshot["gpsPresent"])
+        self.assertEqual(snapshot["motorCount"], 4)
 
     def test_missing_device_is_disconnected(self):
         snapshot = health.read_health("/dev/definitely-missing", 115200, 1, "auto")
         self.assertEqual(snapshot["status"], "disconnected")
         self.assertFalse(snapshot["vehicleConnected"])
+
+    def test_motor_values_are_encoded_for_every_motor(self):
+        calls = []
+
+        class RecordingClient:
+            def command(self, code, payload=b"", timeout=2):
+                del timeout
+                calls.append((code, payload))
+                return b""
+
+        health.set_msp_motors(RecordingClient(), 4, 1050)
+        self.assertEqual(
+            calls,
+            [(health.MSP_SET_MOTOR, struct.pack("<HHHH", 1050, 1050, 1050, 1050))],
+        )
+
+    def test_motor_test_is_refused_while_armed(self):
+        class ArmedClient(FakeMspClient):
+            pass
+
+        with (
+            patch.object(health, "MspClient", ArmedClient),
+            patch.object(health.os.path, "exists", return_value=True),
+        ):
+            response = health.run_motor_action(
+                "/dev/ttyACM0", 115200, 2, "motor-test-start", 1050, 1
+            )
+
+        self.assertFalse(response["success"])
+        self.assertIn("armed", response["error"])
+
+    def test_stop_resets_each_motor_to_minimum(self):
+        instances = []
+
+        class DisarmedClient(FakeMspClient):
+            def __init__(self, *args):
+                super().__init__(*args)
+                self.responses[health.MSP_STATUS] = struct.pack(
+                    "<HHHIBH", 125, 0, 1 << 5, 0, 0, 14
+                )
+                self.motor_payloads = []
+                instances.append(self)
+
+            def command(self, code, payload=b"", timeout=2):
+                if code == health.MSP_SET_MOTOR:
+                    self.motor_payloads.append(payload)
+                    return b""
+                return super().command(code, payload, timeout)
+
+        with (
+            patch.object(health, "MspClient", DisarmedClient),
+            patch.object(health.os.path, "exists", return_value=True),
+            patch.object(health.time, "sleep"),
+        ):
+            response = health.run_motor_action(
+                "/dev/ttyACM0", 115200, 2, "motor-test-stop", 1050, 1
+            )
+
+        expected = struct.pack("<HHHH", 1000, 1000, 1000, 1000)
+        self.assertTrue(response["success"])
+        self.assertEqual(instances[0].motor_payloads, [expected, expected, expected])
 
 
 if __name__ == "__main__":

@@ -48,11 +48,28 @@ function shortTime(date: string): string {
   }).format(new Date(date));
 }
 
-const commandOptions: { command: DeviceCommandName; label: string; description: string }[] = [
+const commandOptions: {
+  command: DeviceCommandName;
+  label: string;
+  description: string;
+  kind?: "motor-start" | "motor-stop";
+}[] = [
   { command: "system.info", label: "System info", description: "Kernel, OS, and architecture" },
   { command: "disk.usage", label: "Disk usage", description: "Mounted filesystem capacity" },
   { command: "network.interfaces", label: "Network", description: "Interface and address status" },
-  { command: "processes.top", label: "Top processes", description: "Processes ranked by CPU use" }
+  { command: "processes.top", label: "Top processes", description: "Processes ranked by CPU use" },
+  {
+    command: "flight-controller.motor-test.start",
+    label: "Start motor test",
+    description: "Fixed low output with an automatic 3-second maximum cutoff",
+    kind: "motor-start"
+  },
+  {
+    command: "flight-controller.motor-test.stop",
+    label: "Stop motor test",
+    description: "Reset all detected Betaflight motor-test outputs to minimum",
+    kind: "motor-stop"
+  }
 ];
 
 function DeviceCard({
@@ -165,7 +182,7 @@ function FlightControllerPanel({ device }: { device: DeviceState }) {
           <span className="fc-icon" aria-hidden="true">✦</span>
           <div>
             <p className="eyebrow">Flight controller</p>
-            <h2>{controller?.autopilot ?? "Waiting for MAVLink"}</h2>
+            <h2>{controller?.autopilot ?? "Waiting for flight controller"}</h2>
             <p>
               {controller?.vehicleType ?? "No vehicle identified"}
               {controller?.device ? ` · ${controller.device}` : ""}
@@ -181,7 +198,11 @@ function FlightControllerPanel({ device }: { device: DeviceState }) {
       <div className="fc-metrics">
         <div>
           <span>Vehicle link</span>
-          <strong>{controller?.vehicleConnected ? "MAVLink active" : "No heartbeat"}</strong>
+          <strong>
+            {controller?.vehicleConnected
+              ? `${(controller.protocol ?? "serial").toUpperCase()} active`
+              : "No controller response"}
+          </strong>
           <small>{controller?.baud ? `${controller.baud.toLocaleString()} baud` : "USB serial auto-detect"}</small>
         </div>
         <div>
@@ -326,9 +347,32 @@ function DeviceDetail({
   const status = statusFor(device, now);
   const usedMemory = device.health.totalMemoryBytes - device.health.freeMemoryBytes;
   const memoryPercent = Math.round((usedMemory / device.health.totalMemoryBytes) * 100);
+  const controller = device.health.flightController;
+  const motorStartReady =
+    status !== "offline" &&
+    controller?.vehicleConnected === true &&
+    controller.protocol === "msp" &&
+    controller.armed === false &&
+    controller.motorTestEnabled === true;
+  const motorStopReady =
+    status !== "offline" &&
+    controller?.vehicleConnected === true &&
+    controller.protocol === "msp" &&
+    controller.armed === false;
 
   function runCommand(command: DeviceCommandName) {
     if (!device || pending) return;
+    if (
+      command === "flight-controller.motor-test.start" &&
+      !window.confirm(
+        "Remove all propellers and clear the area before continuing.\n\n" +
+        "This will command every detected motor at low output. The Pi will " +
+        "automatically return output to minimum after the configured duration.\n\n" +
+        "Continue with the motor test?"
+      )
+    ) {
+      return;
+    }
     setPending(command);
     const requestId = crypto.randomUUID();
     socket.timeout(17_000).emit(
@@ -418,17 +462,38 @@ function DeviceDetail({
           <p className="panel-copy">
             Commands run on this Pi through its agent and return their output here.
           </p>
+          {controller?.protocol === "msp" && !motorStartReady && (
+            <div className="motor-lock">
+              <strong>Motor test locked</strong>
+              <span>
+                {controller.armed
+                  ? "Disarm the flight controller before testing."
+                  : controller.motorTestEnabled !== true
+                  ? "Enable flight_controller.motor_test in the client config, then redeploy."
+                  : "The Betaflight connection must be online and report a disarmed state."}
+              </span>
+            </div>
+          )}
           <div className="command-grid">
-            {commandOptions.map((option) => (
-              <button
-                key={option.command}
-                disabled={status === "offline" || pending !== null}
-                onClick={() => runCommand(option.command)}
-              >
-                <span>{pending === option.command ? "Running…" : option.label}</span>
-                <small>{option.description}</small>
-              </button>
-            ))}
+            {commandOptions.map((option) => {
+              const motorDisabled =
+                option.kind === "motor-start"
+                  ? !motorStartReady
+                  : option.kind === "motor-stop"
+                  ? !motorStopReady
+                  : false;
+              return (
+                <button
+                  className={option.kind ?? ""}
+                  key={option.command}
+                  disabled={status === "offline" || pending !== null || motorDisabled}
+                  onClick={() => runCommand(option.command)}
+                >
+                  <span>{pending === option.command ? "Running…" : option.label}</span>
+                  <small>{option.description}</small>
+                </button>
+              );
+            })}
           </div>
         </section>
       </div>

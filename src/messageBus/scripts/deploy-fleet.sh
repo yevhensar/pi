@@ -78,7 +78,12 @@ for ((client_index = 0; client_index < CLIENT_COUNT; client_index++)); do
         enabled: true,
         device: "auto",
         protocol: "auto",
-        baud: 115200
+        baud: 115200,
+        motor_test: {
+          enabled: false,
+          output: 1050,
+          duration_ms: 2000
+        }
       }),
       server_url: ($client.server_url // $server_url)
     }
