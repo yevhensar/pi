@@ -8,6 +8,10 @@ SERVICE_USER=pi-health-agent
 SERVER_URL=
 DEVICE_ID=
 WIFI_INTERFACE=
+FLIGHT_CONTROLLER_ENABLED=true
+FLIGHT_CONTROLLER_DEVICE=auto
+FLIGHT_CONTROLLER_PROTOCOL=auto
+FLIGHT_CONTROLLER_BAUD=115200
 SOURCE_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 usage() {
@@ -20,6 +24,10 @@ while [[ $# -gt 0 ]]; do
     --device-id) DEVICE_ID=${2:-}; shift 2 ;;
     --source-dir) SOURCE_DIR=${2:-}; shift 2 ;;
     --wifi-interface) WIFI_INTERFACE=${2:-}; shift 2 ;;
+    --flight-controller-enabled) FLIGHT_CONTROLLER_ENABLED=${2:-}; shift 2 ;;
+    --flight-controller-device) FLIGHT_CONTROLLER_DEVICE=${2:-}; shift 2 ;;
+    --flight-controller-protocol) FLIGHT_CONTROLLER_PROTOCOL=${2:-}; shift 2 ;;
+    --flight-controller-baud) FLIGHT_CONTROLLER_BAUD=${2:-}; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Error: unknown argument: $1" >&2; usage; exit 1 ;;
   esac
@@ -31,10 +39,25 @@ done
   { echo "Error: --device-id may contain letters, digits, dots, underscores, and dashes." >&2; exit 1; }
 [[ -z $WIFI_INTERFACE || $WIFI_INTERFACE =~ ^[A-Za-z0-9._:-]+$ ]] ||
   { echo "Error: invalid Wi-Fi interface." >&2; exit 1; }
+[[ $FLIGHT_CONTROLLER_ENABLED == true || $FLIGHT_CONTROLLER_ENABLED == false ]] ||
+  { echo "Error: invalid flight-controller enabled value." >&2; exit 1; }
+[[ $FLIGHT_CONTROLLER_DEVICE == auto || $FLIGHT_CONTROLLER_DEVICE =~ ^/dev/[A-Za-z0-9._/-]+$ ]] ||
+  { echo "Error: invalid flight-controller device." >&2; exit 1; }
+[[ $FLIGHT_CONTROLLER_PROTOCOL == auto || $FLIGHT_CONTROLLER_PROTOCOL == mavlink || $FLIGHT_CONTROLLER_PROTOCOL == msp ]] ||
+  { echo "Error: invalid flight-controller protocol." >&2; exit 1; }
+[[ $FLIGHT_CONTROLLER_BAUD =~ ^[0-9]+$ ]] &&
+  (( FLIGHT_CONTROLLER_BAUD >= 1200 && FLIGHT_CONTROLLER_BAUD <= 4000000 )) ||
+  { echo "Error: invalid flight-controller baud." >&2; exit 1; }
 
 if [[ $EUID -ne 0 ]]; then
   sudo_arguments=("$0" --server-url "$SERVER_URL" --device-id "$DEVICE_ID" --source-dir "$SOURCE_DIR")
   [[ -z $WIFI_INTERFACE ]] || sudo_arguments+=(--wifi-interface "$WIFI_INTERFACE")
+  sudo_arguments+=(
+    --flight-controller-enabled "$FLIGHT_CONTROLLER_ENABLED"
+    --flight-controller-device "$FLIGHT_CONTROLLER_DEVICE"
+    --flight-controller-protocol "$FLIGHT_CONTROLLER_PROTOCOL"
+    --flight-controller-baud "$FLIGHT_CONTROLLER_BAUD"
+  )
   exec sudo -- "${sudo_arguments[@]}"
 fi
 
@@ -78,9 +101,25 @@ echo "Installing Pi health agent..."
 id -u "$SERVICE_USER" >/dev/null 2>&1 ||
   useradd --system --home-dir "$APP_DIR" --shell /usr/sbin/nologin "$SERVICE_USER"
 install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0755 "$APP_DIR"
-find "$APP_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+find "$APP_DIR" -mindepth 1 -maxdepth 1 ! -name venv -exec rm -rf -- {} +
 cp -a "$SOURCE_DIR/agent/dist" "$APP_DIR/dist"
+cp -a "$SOURCE_DIR/agent/python" "$APP_DIR/python"
 cp "$SOURCE_DIR/agent/package.json" "$APP_DIR/package.json"
+
+if [[ $FLIGHT_CONTROLLER_ENABLED == true ]]; then
+  echo "Installing flight-controller telemetry runtime..."
+  if [[ ! -x $APP_DIR/venv/bin/python ]]; then
+    apt-get update
+    apt-get install -y python3 python3-venv
+    python3 -m venv "$APP_DIR/venv"
+  fi
+  if ! "$APP_DIR/venv/bin/python" -c 'import pymavlink' >/dev/null 2>&1; then
+    "$APP_DIR/venv/bin/pip" install --no-cache-dir pymavlink pyserial
+  elif ! "$APP_DIR/venv/bin/python" -c 'import serial' >/dev/null 2>&1; then
+    "$APP_DIR/venv/bin/pip" install --no-cache-dir pyserial
+  fi
+  usermod -a -G dialout "$SERVICE_USER"
+fi
 
 if [[ -d $SOURCE_DIR/node_modules/socket.io-client ]]; then
   cp -a "$SOURCE_DIR/node_modules" "$APP_DIR/node_modules"
@@ -96,7 +135,12 @@ install -d -o root -g "$SERVICE_USER" -m 0750 "$ENV_DIR"
   printf 'SERVER_URL=%s\n' "$SERVER_URL"
   printf 'DEVICE_ID=%s\n' "$DEVICE_ID"
   printf 'HEALTH_INTERVAL_MS=60000\n'
+  printf 'NODE_ENV=production\n'
   [[ -z $WIFI_INTERFACE ]] || printf 'WIFI_INTERFACE=%s\n' "$WIFI_INTERFACE"
+  printf 'FLIGHT_CONTROLLER_ENABLED=%s\n' "$FLIGHT_CONTROLLER_ENABLED"
+  printf 'FLIGHT_CONTROLLER_DEVICE=%s\n' "$FLIGHT_CONTROLLER_DEVICE"
+  printf 'FLIGHT_CONTROLLER_PROTOCOL=%s\n' "$FLIGHT_CONTROLLER_PROTOCOL"
+  printf 'FLIGHT_CONTROLLER_BAUD=%s\n' "$FLIGHT_CONTROLLER_BAUD"
 } > "$ENV_DIR/agent.env"
 chown root:"$SERVICE_USER" "$ENV_DIR/agent.env"
 chmod 0640 "$ENV_DIR/agent.env"

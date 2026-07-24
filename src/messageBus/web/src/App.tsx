@@ -152,6 +152,153 @@ function DeviceCard({
   );
 }
 
+function FlightControllerPanel({ device }: { device: DeviceState }) {
+  const controller = device.health.flightController;
+  const status = controller?.status ?? "disconnected";
+  const battery =
+    controller?.batteryPercent !== undefined ? `${controller.batteryPercent}%` : "Unknown";
+
+  return (
+    <section className={`detail-panel flight-controller fc-${status}`}>
+      <div className="fc-heading">
+        <div className="fc-identity">
+          <span className="fc-icon" aria-hidden="true">✦</span>
+          <div>
+            <p className="eyebrow">Flight controller</p>
+            <h2>{controller?.autopilot ?? "Waiting for MAVLink"}</h2>
+            <p>
+              {controller?.vehicleType ?? "No vehicle identified"}
+              {controller?.device ? ` · ${controller.device}` : ""}
+            </p>
+          </div>
+        </div>
+        <span className={`fc-status fc-status-${status}`}>
+          <i />
+          {status === "disconnected" ? "Not connected" : status}
+        </span>
+      </div>
+
+      <div className="fc-metrics">
+        <div>
+          <span>Vehicle link</span>
+          <strong>{controller?.vehicleConnected ? "MAVLink active" : "No heartbeat"}</strong>
+          <small>{controller?.baud ? `${controller.baud.toLocaleString()} baud` : "USB serial auto-detect"}</small>
+        </div>
+        <div>
+          <span>Flight state</span>
+          <strong>
+            {controller?.armed === undefined
+              ? "Unknown"
+              : controller.armed ? "Armed" : "Disarmed"}
+          </strong>
+          <small>{controller?.flightMode ?? "Mode unavailable"}</small>
+        </div>
+        <div>
+          <span>Battery</span>
+          <strong>{battery}</strong>
+          <small>
+            {controller?.batteryVoltageV !== undefined
+              ? `${controller.batteryVoltageV.toFixed(2)} V`
+              : "Voltage unavailable"}
+          </small>
+        </div>
+        <div>
+          <span>GPS</span>
+          <strong>
+            {controller?.gpsPresent === false
+              ? "Not installed"
+              : controller?.gpsFixType ?? "Unknown"}
+          </strong>
+          <small>
+            {controller?.gpsPresent === false
+              ? "Controller reports no GPS sensor"
+              : controller?.satelliteCount !== undefined
+              ? `${controller.satelliteCount} satellites`
+              : "Satellite count unavailable"}
+          </small>
+        </div>
+        <div>
+          <span>Navigation health</span>
+          <strong>
+            {controller?.ekfHealthy === undefined
+              ? "Unknown"
+              : controller.ekfHealthy ? "EKF healthy" : "EKF warning"}
+          </strong>
+          <small>
+            {controller?.gpsHealthy === undefined
+              ? "GPS health unknown"
+              : controller.gpsPresent === false ? "GPS not installed"
+              : controller.gpsHealthy ? "GPS healthy" : "GPS needs attention"}
+          </small>
+        </div>
+      </div>
+
+      {controller?.vehicleConnected && (
+        <div className="fc-secondary">
+          <div>
+            <span>Firmware</span>
+            <strong>{controller.firmwareVersion ?? "Unknown"}</strong>
+          </div>
+          <div>
+            <span>Board</span>
+            <strong>
+              {controller.boardName ?? controller.targetName ?? controller.boardIdentifier ?? "Unknown"}
+            </strong>
+          </div>
+          <div>
+            <span>Sensors</span>
+            <strong>
+              {[
+                controller.gyroPresent && "Gyro",
+                controller.accelerometerPresent && "Accel",
+                controller.barometerPresent && "Baro",
+                controller.magnetometerPresent && "Mag",
+                controller.gpsPresent && "GPS"
+              ].filter(Boolean).join(" · ") || "Not reported"}
+            </strong>
+          </div>
+          <div>
+            <span>Controller load</span>
+            <strong>
+              {controller.systemLoadPercent !== undefined
+                ? `${controller.systemLoadPercent}%`
+                : "Unknown"}
+            </strong>
+          </div>
+        </div>
+      )}
+
+      {(controller?.error || (controller?.preArmFailures.length ?? 0) > 0) && (
+        <div className="fc-advisories">
+          <div>
+            <span>!</span>
+            <div>
+              <strong>Attention needed</strong>
+              {controller?.error && <p>{controller.error}</p>}
+              {controller?.preArmFailures.map((failure) => <p key={failure}>{failure}</p>)}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!controller && (
+        <div className="fc-empty">
+          Flight-controller telemetry will appear after the updated agent reports its first probe.
+        </div>
+      )}
+
+      <footer className="fc-footer">
+        <span>
+          {controller?.checkedAt
+            ? `Checked ${shortTime(controller.checkedAt)}`
+            : "No probe received"}
+        </span>
+        <span>Read-only telemetry · {(controller?.protocol ?? "auto").toUpperCase()}</span>
+      </footer>
+    </section>
+  );
+}
+
 function DeviceDetail({
   device,
   now,
@@ -285,6 +432,8 @@ function DeviceDetail({
           </div>
         </section>
       </div>
+
+      <FlightControllerPanel device={device} />
 
       <section className="detail-panel command-history">
         <div className="panel-heading">

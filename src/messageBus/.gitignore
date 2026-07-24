@@ -2,6 +2,8 @@ node_modules/
 dist/
 *.log
 *.tsbuildinfo
+__pycache__/
+*.pyc
 .env
 .DS_Store
 config/*.json

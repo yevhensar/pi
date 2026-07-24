@@ -74,6 +74,12 @@ for ((client_index = 0; client_index < CLIENT_COUNT; client_index++)); do
       role: ($client.role // "client"),
       client_id: ($client.client_id // ""),
       wifi_interface: ($client.wifi_interface // $root.wifi_interface // ""),
+      flight_controller: ($client.flight_controller // $root.flight_controller // {
+        enabled: true,
+        device: "auto",
+        protocol: "auto",
+        baud: 115200
+      }),
       server_url: ($client.server_url // $server_url)
     }
   ' "$CONFIG_FILE" > "$client_file"

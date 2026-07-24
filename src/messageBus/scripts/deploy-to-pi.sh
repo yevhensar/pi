@@ -9,6 +9,10 @@ SUDO_PASSWORD=
 SERVER_URL=
 DEVICE_ID=
 WIFI_INTERFACE=
+FLIGHT_CONTROLLER_ENABLED=true
+FLIGHT_CONTROLLER_DEVICE=auto
+FLIGHT_CONTROLLER_PROTOCOL=auto
+FLIGHT_CONTROLLER_BAUD=115200
 SSH_PORT=22
 SKIP_BUILD=false
 CHECK_CONFIG=false
@@ -58,6 +62,10 @@ if [[ -n $CONFIG_FILE ]]; then
   SERVER_URL=$(jq -r '.server_url // empty' "$CONFIG_FILE")
   DEVICE_ID=$(jq -r '.client_id // empty' "$CONFIG_FILE")
   WIFI_INTERFACE=$(jq -r '.wifi_interface // empty' "$CONFIG_FILE")
+  FLIGHT_CONTROLLER_ENABLED=$(jq -r '.flight_controller.enabled // true' "$CONFIG_FILE")
+  FLIGHT_CONTROLLER_DEVICE=$(jq -r '.flight_controller.device // "auto"' "$CONFIG_FILE")
+  FLIGHT_CONTROLLER_PROTOCOL=$(jq -r '.flight_controller.protocol // "auto"' "$CONFIG_FILE")
+  FLIGHT_CONTROLLER_BAUD=$(jq -r '.flight_controller.baud // 115200' "$CONFIG_FILE")
   SSH_PORT=$(jq -r '.ssh_port // 22' "$CONFIG_FILE")
   ROLE=$(jq -r '.role // "client"' "$CONFIG_FILE")
 
@@ -98,6 +106,15 @@ done
   { echo "Error: invalid device ID." >&2; exit 1; }
 [[ -z $WIFI_INTERFACE || $WIFI_INTERFACE =~ ^[A-Za-z0-9._:-]+$ ]] ||
   { echo "Error: invalid Wi-Fi interface." >&2; exit 1; }
+[[ $FLIGHT_CONTROLLER_ENABLED == true || $FLIGHT_CONTROLLER_ENABLED == false ]] ||
+  { echo "Error: flight_controller.enabled must be true or false." >&2; exit 1; }
+[[ $FLIGHT_CONTROLLER_DEVICE == auto || $FLIGHT_CONTROLLER_DEVICE =~ ^/dev/[A-Za-z0-9._/-]+$ ]] ||
+  { echo "Error: flight_controller.device must be auto or a /dev path." >&2; exit 1; }
+[[ $FLIGHT_CONTROLLER_PROTOCOL == auto || $FLIGHT_CONTROLLER_PROTOCOL == mavlink || $FLIGHT_CONTROLLER_PROTOCOL == msp ]] ||
+  { echo "Error: flight_controller.protocol must be auto, mavlink, or msp." >&2; exit 1; }
+[[ $FLIGHT_CONTROLLER_BAUD =~ ^[0-9]+$ ]] &&
+  (( FLIGHT_CONTROLLER_BAUD >= 1200 && FLIGHT_CONTROLLER_BAUD <= 4000000 )) ||
+  { echo "Error: invalid flight-controller baud." >&2; exit 1; }
 
 if [[ $CHECK_CONFIG == true ]]; then
   echo "Configuration is valid."
@@ -106,6 +123,7 @@ if [[ $CHECK_CONFIG == true ]]; then
   echo "Client ID: $DEVICE_ID"
   echo "Server URL: $SERVER_URL"
   echo "Wi-Fi interface: ${WIFI_INTERFACE:-all interfaces}"
+  echo "Flight controller: $([[ $FLIGHT_CONTROLLER_ENABLED == true ]] && echo "$FLIGHT_CONTROLLER_PROTOCOL on $FLIGHT_CONTROLLER_DEVICE at $FLIGHT_CONTROLLER_BAUD baud" || echo disabled)"
   echo "SSH authentication: $([[ -n $SSH_PASSWORD ]] && echo password || echo keys/interactive)"
   echo "sudo authentication: $([[ -n $SUDO_PASSWORD ]] && echo configured || echo passwordless/interactive)"
   exit 0
@@ -148,6 +166,7 @@ echo "[2/5] Preparing deployment archive..."
 LOCAL_TMP=$(mktemp -d)
 mkdir -p "$LOCAL_TMP/bundle/agent" "$LOCAL_TMP/bundle/scripts"
 cp -a agent/dist "$LOCAL_TMP/bundle/agent/dist"
+cp -a agent/python "$LOCAL_TMP/bundle/agent/python"
 cp agent/package.production.json "$LOCAL_TMP/bundle/agent/package.json"
 cp package-lock.json "$LOCAL_TMP/bundle/package-lock.json"
 cp scripts/install-pi.sh "$LOCAL_TMP/bundle/scripts/install-pi.sh"
@@ -171,6 +190,7 @@ INSTALL_COMMAND+=" '$REMOTE_TMP/scripts/install-pi.sh' --server-url '$SERVER_URL
 if [[ -n $WIFI_INTERFACE ]]; then
   INSTALL_COMMAND+=" --wifi-interface '$WIFI_INTERFACE'"
 fi
+INSTALL_COMMAND+=" --flight-controller-enabled '$FLIGHT_CONTROLLER_ENABLED' --flight-controller-device '$FLIGHT_CONTROLLER_DEVICE' --flight-controller-protocol '$FLIGHT_CONTROLLER_PROTOCOL' --flight-controller-baud '$FLIGHT_CONTROLLER_BAUD'"
 
 if [[ -n $SUDO_PASSWORD ]]; then
   printf '%s\n' "$SUDO_PASSWORD" | "${SSH_COMMAND[@]}" -tt "$REMOTE_HOST" "$INSTALL_COMMAND"

@@ -1,3 +1,41 @@
+export type FlightControllerStatus = "healthy" | "warning" | "error" | "disconnected";
+
+export type FlightControllerHealth = {
+  status: FlightControllerStatus;
+  checkedAt: string;
+  device?: string;
+  baud?: number;
+  protocol?: "mavlink" | "msp";
+  vehicleConnected: boolean;
+  autopilot?: string;
+  vehicleType?: string;
+  systemStatus?: string;
+  flightMode?: string;
+  armed?: boolean;
+  batteryPercent?: number;
+  batteryVoltageV?: number;
+  gpsFixType?: string;
+  satelliteCount?: number;
+  gpsHealthy?: boolean;
+  ekfHealthy?: boolean;
+  latitude?: number;
+  longitude?: number;
+  relativeAltitudeM?: number;
+  firmwareVersion?: string;
+  boardIdentifier?: string;
+  boardName?: string;
+  targetName?: string;
+  apiVersion?: string;
+  systemLoadPercent?: number;
+  gyroPresent?: boolean;
+  accelerometerPresent?: boolean;
+  barometerPresent?: boolean;
+  magnetometerPresent?: boolean;
+  gpsPresent?: boolean;
+  preArmFailures: string[];
+  error?: string;
+};
+
 export type HealthCheck = {
   deviceId: string;
   hostname: string;
@@ -10,6 +48,7 @@ export type HealthCheck = {
   architecture: string;
   appVersion: string;
   ipAddresses: string[];
+  flightController?: FlightControllerHealth;
 };
 
 export type DeviceState = {

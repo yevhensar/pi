@@ -17,7 +17,7 @@
     "dev:agent": "npm run dev -w @pi-health/agent",
     "deploy:server": "bash scripts/deploy-server.sh",
     "deploy:client": "bash scripts/deploy-to-pi.sh",
-    "deploy:clients": "bash scripts/deploy-fleet.sh",
+    "deploy:clients": "bash scripts/deploy-fleet.sh --config config/pi-fleet.json",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "clean": "npm run clean --workspaces --if-present"
   },

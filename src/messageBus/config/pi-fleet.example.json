@@ -5,6 +5,12 @@
   "sudo_password": "",
   "ssh_port": 22,
   "wifi_interface": "wlan0",
+  "flight_controller": {
+    "enabled": true,
+    "device": "auto",
+    "protocol": "auto",
+    "baud": 115200
+  },
   "clients": [
     {
       "host": "192.168.1.60",

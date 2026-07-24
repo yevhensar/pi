@@ -1,5 +1,5 @@
 import os from "node:os";
-import type { HealthCheck } from "@pi-health/shared";
+import type { FlightControllerHealth, HealthCheck } from "@pi-health/shared";
 
 function ipAddresses(interfaceName?: string): string[] {
   const interfaces = os.networkInterfaces();
@@ -13,7 +13,8 @@ function ipAddresses(interfaceName?: string): string[] {
 export function collectHealth(
   deviceId: string,
   appVersion: string,
-  interfaceName?: string
+  interfaceName?: string,
+  flightController?: FlightControllerHealth
 ): HealthCheck {
   return {
     deviceId,
@@ -26,6 +27,7 @@ export function collectHealth(
     platform: os.platform(),
     architecture: os.arch(),
     appVersion,
-    ipAddresses: ipAddresses(interfaceName)
+    ipAddresses: ipAddresses(interfaceName),
+    flightController
   };
 }

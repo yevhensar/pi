@@ -7,5 +7,11 @@
   "role": "client",
   "client_id": "pi-5-01",
   "wifi_interface": "wlan0",
+  "flight_controller": {
+    "enabled": true,
+    "device": "auto",
+    "protocol": "auto",
+    "baud": 115200
+  },
   "server_url": "http://192.168.1.50:3000"
 }

@@ -6,6 +6,7 @@ import type {
 } from "@pi-health/shared";
 import { config } from "./config.js";
 import { executeCommand } from "./commands.js";
+import { collectFlightControllerHealth } from "./flight-controller.js";
 import { collectHealth } from "./health.js";
 
 const APP_VERSION = "1.0.0";
@@ -20,8 +21,18 @@ const socket: Socket<ServerToSocketEvents, ClientToServerEvents> = io(config.ser
 
 let interval: NodeJS.Timeout | undefined;
 
-function transmit() {
-  const health = collectHealth(config.deviceId, APP_VERSION, config.wifiInterface);
+let transmissionInProgress = false;
+
+async function transmit() {
+  if (transmissionInProgress) return;
+  transmissionInProgress = true;
+  const flightController = await collectFlightControllerHealth();
+  const health = collectHealth(
+    config.deviceId,
+    APP_VERSION,
+    config.wifiInterface,
+    flightController
+  );
   console.log(`[health] sending ${health.deviceId} at ${health.timestamp}`);
   socket.timeout(10_000).emit(
     "device:health",
@@ -36,6 +47,7 @@ function transmit() {
       } else {
         console.error(`[health] rejected: ${result?.error ?? "unknown error"}`);
       }
+      transmissionInProgress = false;
     }
   );
 }
@@ -43,7 +55,7 @@ function transmit() {
 socket.on("connect", () => {
   console.log(`[socket] connected to ${config.serverUrl} as ${socket.id}`);
   if (interval) clearInterval(interval);
-  transmit();
+  void transmit();
   interval = setInterval(transmit, config.healthIntervalMs);
 });
 

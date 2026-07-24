@@ -81,6 +81,40 @@ Commands are executed directly without a shell, time out after 10 seconds, and
 return their output to the requesting dashboard. Arbitrary shell commands are
 not accepted.
 
+### Flight-controller health
+
+The Pi detail page includes a full-width flight-controller health section. The
+agent auto-detects a controller under `/dev/serial/by-id/*`, `/dev/ttyACM*`, or
+`/dev/ttyUSB*`. Protocol `auto` recognizes Betaflight USB identities and probes
+them with MSP serial; other controllers are probed with MAVLink, with fallback
+to the other protocol when the first probe does not answer. It reports:
+
+- MAVLink heartbeat, autopilot, vehicle type, mode, and armed state
+- battery percentage and voltage
+- GPS fix and satellite count
+- EKF/navigation health
+- position and relative altitude when available
+- ArduPilot `PreArm:` status messages observed during the probe
+
+Configure shared fleet defaults or override them on an individual client:
+
+```json
+{
+  "flight_controller": {
+    "enabled": true,
+    "device": "auto",
+    "protocol": "auto",
+    "baud": 115200
+  }
+}
+```
+
+Use a stable `/dev/serial/by-id/...` path instead of `auto` when more than one
+serial device is connected. During deployment, the installer creates a Python
+virtual environment, installs `pymavlink` and `pyserial`, and adds
+`pi-health-agent` to the Linux `dialout` group. The first dependency
+installation requires internet access; subsequent probes are local.
+
 ## Install the Ubuntu server
 
 The Ubuntu server is installed on the local machine, not over SSH. Create its
@@ -236,7 +270,14 @@ Validate every entry without connecting:
 Deploy the entire fleet:
 
 ```bash
-npm run deploy:clients -- --config config/pi-fleet.json
+npm run deploy:clients
+```
+
+The npm command uses the private `config/pi-fleet.json` file automatically.
+Validate the same file without deploying:
+
+```bash
+npm run deploy:clients -- --check-config
 ```
 
 The client is built once and then deployed sequentially. Deployment stops on
