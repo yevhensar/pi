@@ -149,8 +149,16 @@ that interface; leave it empty to report all active interfaces.
 
 Password fields are optional. Empty values use SSH keys or normal interactive
 authentication and passwordless/interactive sudo. A non-empty `ssh_password`
-requires the local `sshpass` package. Real `config/*.json` files are ignored by
-Git; keep them mode `600` because they contain plaintext credentials.
+uses the local `sshpass` utility when available. Without `sshpass`, deployment
+falls back to a normal interactive SSH password prompt instead of failing.
+Install it with `sudo apt install sshpass` for unattended password-based
+deployment. Real `config/*.json` files are ignored by Git; keep them mode `600`
+because they contain plaintext credentials.
+
+The Pi installer checks the remote Node.js version. If Node.js 20 or newer is
+missing, it installs Node.js 22 through the NodeSource Debian repository before
+installing the agent. This first installation requires internet access from the
+Pi; subsequent agent operation is entirely local.
 
 ### Command-line configuration
 
@@ -219,8 +227,7 @@ npm run deploy:clients -- --config config/pi-fleet.json
 The client is built once and then deployed sequentially. Deployment stops on
 the first failure so a partial rollout is visible and safe to resume. Re-run
 the same command after resolving the failed host; already installed clients
-are upgraded safely. The earlier CSV format remains supported with
-`--fleet config/fleet.csv --server-url URL`.
+are upgraded safely.
 
 ## Service operations
 

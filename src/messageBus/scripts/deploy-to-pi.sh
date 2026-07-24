@@ -114,11 +114,14 @@ fi
 SSH_COMMAND=(ssh -p "$SSH_PORT")
 SCP_COMMAND=(scp -P "$SSH_PORT")
 if [[ -n $SSH_PASSWORD ]]; then
-  command -v sshpass >/dev/null ||
-    { echo "Error: sshpass is required when ssh_password is configured." >&2; exit 1; }
-  export SSHPASS="$SSH_PASSWORD"
-  SSH_COMMAND=(sshpass -e ssh -p "$SSH_PORT")
-  SCP_COMMAND=(sshpass -e scp -P "$SSH_PORT")
+  if command -v sshpass >/dev/null; then
+    export SSHPASS="$SSH_PASSWORD"
+    SSH_COMMAND=(sshpass -e ssh -p "$SSH_PORT")
+    SCP_COMMAND=(sshpass -e scp -P "$SSH_PORT")
+  else
+    echo "Warning: sshpass is not installed; SSH will prompt for the password interactively." >&2
+    echo "For unattended deployment, install it with: sudo apt install sshpass" >&2
+  fi
 fi
 
 cleanup() {
@@ -170,9 +173,9 @@ if [[ -n $WIFI_INTERFACE ]]; then
 fi
 
 if [[ -n $SUDO_PASSWORD ]]; then
-  printf '%s\n' "$SUDO_PASSWORD" | "${SSH_COMMAND[@]}" -t "$REMOTE_HOST" "$INSTALL_COMMAND"
+  printf '%s\n' "$SUDO_PASSWORD" | "${SSH_COMMAND[@]}" -tt "$REMOTE_HOST" "$INSTALL_COMMAND"
 else
-  "${SSH_COMMAND[@]}" -t "$REMOTE_HOST" "$INSTALL_COMMAND"
+  "${SSH_COMMAND[@]}" -tt "$REMOTE_HOST" "$INSTALL_COMMAND"
 fi
 
 echo "Deployment complete: $DEVICE_ID → $SERVER_URL"

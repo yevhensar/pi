@@ -38,10 +38,37 @@ if [[ $EUID -ne 0 ]]; then
   exec sudo -- "${sudo_arguments[@]}"
 fi
 
-command -v node >/dev/null || { echo "Error: Node.js 20 or newer is required." >&2; exit 1; }
-command -v npm >/dev/null || { echo "Error: npm is required." >&2; exit 1; }
-node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 20 ? 0 : 1)' ||
-  { echo "Error: Node.js 20 or newer is required." >&2; exit 1; }
+node_is_supported() {
+  command -v node >/dev/null 2>&1 &&
+    command -v npm >/dev/null 2>&1 &&
+    node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 20 ? 0 : 1)' \
+      >/dev/null 2>&1
+}
+
+install_nodejs() {
+  command -v apt-get >/dev/null ||
+    { echo "Error: Node.js is missing and apt-get is unavailable." >&2; exit 1; }
+
+  echo "Node.js 20+ was not found; installing Node.js 22..."
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update
+  apt-get install -y ca-certificates curl
+
+  NODE_SETUP=$(mktemp)
+  trap 'rm -f "${NODE_SETUP:-}"' EXIT
+  curl --fail --silent --show-error --location \
+    https://deb.nodesource.com/setup_22.x \
+    --output "$NODE_SETUP"
+  bash "$NODE_SETUP"
+  apt-get install -y nodejs
+  rm -f "$NODE_SETUP"
+
+  node_is_supported ||
+    { echo "Error: Node.js 22 installation did not complete successfully." >&2; exit 1; }
+  echo "Installed Node.js $(node --version)."
+}
+
+node_is_supported || install_nodejs
 
 SOURCE_DIR=$(realpath "$SOURCE_DIR")
 [[ -d $SOURCE_DIR/agent/dist && -f $SOURCE_DIR/agent/package.json ]] ||
