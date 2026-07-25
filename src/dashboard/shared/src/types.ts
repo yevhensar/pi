@@ -4,6 +4,27 @@ export type { EncryptedEnvelope } from "./crypto.js";
 
 export type FlightControllerStatus = "healthy" | "warning" | "error" | "disconnected";
 
+export type CameraHealth = {
+  status: "healthy" | "busy" | "missing" | "error";
+  checkedAt: string;
+  available: boolean;
+  backend?: "rpicam-still" | "libcamera-still";
+  model?: string;
+  details?: string;
+  error?: string;
+};
+
+export type CameraCapture = {
+  success: true;
+  capturedAt: string;
+  backend: "rpicam-still" | "libcamera-still";
+  mimeType: "image/jpeg";
+  width: number;
+  height: number;
+  sizeBytes: number;
+  imageBase64: string;
+};
+
 export type FlightControllerHealth = {
   status: FlightControllerStatus;
   checkedAt: string;
@@ -25,6 +46,8 @@ export type FlightControllerHealth = {
   latitude?: number;
   longitude?: number;
   relativeAltitudeM?: number;
+  rollDeg?: number;
+  pitchDeg?: number;
   firmwareVersion?: string;
   boardIdentifier?: string;
   boardName?: string;
@@ -74,6 +97,9 @@ export const deviceCommandNames = [
   "disk.usage",
   "network.interfaces",
   "processes.top",
+  "camera.health",
+  "camera.capture",
+  "flight-controller.attitude",
   "flight-controller.motor-test.start",
   "flight-controller.motor-test.stop"
 ] as const;

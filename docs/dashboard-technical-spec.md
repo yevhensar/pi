@@ -256,6 +256,9 @@ Supported command names are:
 - `disk.usage`
 - `network.interfaces`
 - `processes.top`
+- `camera.health`
+- `camera.capture`
+- `flight-controller.attitude`
 - `flight-controller.motor-test.start`
 - `flight-controller.motor-test.stop`
 
@@ -613,10 +616,13 @@ arguments:
 | `disk.usage` | `df -h --output=...` |
 | `network.interfaces` | `ip -brief address` |
 | `processes.top` | `ps -eo ... --sort=-%cpu` |
+| `camera.health` | `rpicam-still --list-cameras` with legacy fallback |
+| `camera.capture` | Fixed, bounded `rpicam-still` or `libcamera-still` JPEG capture |
 
-Commands use `execFile`, not a shell. Output is limited to 64,000 characters,
-the child-process buffer is limited to 256 KiB, and commands time out after 10
-seconds.
+Commands use `execFile`, not a shell. Diagnostic text output is limited to
+64,000 characters, the child-process buffer is limited to 256 KiB, and commands
+time out after 10 seconds. Camera images follow the separate bounded binary
+capture path described below.
 
 ## 13. Dashboard web application
 
@@ -636,6 +642,25 @@ data is supplied by encrypted Socket.IO snapshots and updates.
 
 The browser never executes commands locally. It sends a typed command name to
 the server, which verifies the name and routes it to the current Pi socket.
+
+The device detail page also contains a Betaflight-only artificial horizon. While
+the Pi and MSP controller are online, the browser requests encrypted, read-only
+`flight-controller.attitude` samples through the normal command route. The Pi
+reads `MSP_ATTITUDE` under the shared serial lock and returns roll and pitch.
+Sampling pauses when the device is offline or the controller is not using MSP.
+
+The same page contains a camera panel. While the page is visible and the Pi is
+online, the browser requests encrypted `camera.health` checks every five
+seconds. Checks pause when the tab is hidden or the Pi is offline. The agent
+prefers `rpicam-still` and falls back to the legacy `libcamera-still`
+executable.
+
+`camera.capture` is an explicit operator action. The Pi captures a fixed
+1280-by-720 JPEG into a unique temporary directory, validates the JPEG marker
+and a four-megabyte size limit, returns the image through the encrypted command
+response, and removes the temporary directory in a `finally` block. The browser
+keeps the preview in tab memory and offers download and dismiss controls. The
+server does not persist captured images.
 
 ## 14. Configuration
 
@@ -802,6 +827,7 @@ The Pi installer:
 - preserves the Python virtual environment during upgrades;
 - installs `pymavlink` and `pyserial`;
 - adds `pi-health-agent` to `dialout`;
+- adds `pi-health-agent` to available `video` and `render` camera groups;
 - writes `/etc/pi-health-agent/agent.env`, root-owned and mode `0640`;
 - installs and restarts `pi-health-agent.service`.
 

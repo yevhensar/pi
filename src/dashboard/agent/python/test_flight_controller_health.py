@@ -89,6 +89,19 @@ class FlightControllerHealthTest(unittest.TestCase):
         self.assertEqual(snapshot["status"], "disconnected")
         self.assertFalse(snapshot["vehicleConnected"])
 
+    def test_betaflight_attitude_sample(self):
+        with (
+            patch.object(health, "MspClient", FakeMspClient),
+            patch.object(health.os.path, "exists", return_value=True),
+        ):
+            sample = health.read_msp_attitude("/dev/ttyACM0", 115200, 2)
+
+        self.assertTrue(sample["success"])
+        self.assertEqual(sample["protocol"], "msp")
+        self.assertAlmostEqual(sample["rollDeg"], 1.2)
+        self.assertAlmostEqual(sample["pitchDeg"], -0.8)
+        self.assertEqual(sample["headingDeg"], 90)
+
     def test_motor_values_are_encoded_for_every_motor(self):
         calls = []
 

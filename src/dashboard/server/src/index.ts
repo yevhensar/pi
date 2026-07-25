@@ -20,7 +20,8 @@ import { DeviceStore } from "./device-store.js";
 const app = express();
 const httpServer = http.createServer(app);
 const io = new Server<ClientToServerEvents, ServerToSocketEvents>(httpServer, {
-  cors: { origin: true, credentials: true }
+  cors: { origin: true, credentials: true },
+  maxHttpBufferSize: 10 * 1024 * 1024
 });
 const cipher = await createMessageCipher(config.messageToken);
 const devices = new DeviceStore();

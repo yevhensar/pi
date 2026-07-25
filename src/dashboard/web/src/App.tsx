@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type {
+  CameraCapture,
+  CameraHealth,
   DeviceCommandName,
   DeviceCommandResult,
   DeviceState as SharedDeviceState,
@@ -378,6 +380,401 @@ function FlightControllerPanel({ device }: { device: DeviceState }) {
   );
 }
 
+type AttitudeSample = {
+  rollDeg: number;
+  pitchDeg: number;
+  headingDeg?: number;
+  sampledAt: string;
+};
+
+function HorizonBalance({
+  device,
+  cipher,
+  online
+}: {
+  device: DeviceState;
+  cipher: MessageCipher;
+  online: boolean;
+}) {
+  const controller = device.health.flightController;
+  const supported =
+    online &&
+    controller?.vehicleConnected === true &&
+    controller.protocol === "msp";
+  const [sample, setSample] = useState<AttitudeSample | null>(
+    controller?.rollDeg !== undefined && controller.pitchDeg !== undefined
+      ? {
+          rollDeg: controller.rollDeg,
+          pitchDeg: controller.pitchDeg,
+          sampledAt: controller.checkedAt
+        }
+      : null
+  );
+  const [monitorState, setMonitorState] = useState<"connecting" | "live" | "paused" | "error">(
+    supported ? "connecting" : "paused"
+  );
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let stopped = false;
+    let timer: number | undefined;
+
+    if (!supported) {
+      setMonitorState("paused");
+      setError("");
+      return () => undefined;
+    }
+
+    async function requestSample() {
+      if (stopped) return;
+      const requestId = crypto.randomUUID();
+      try {
+        const encryptedRequest = await cipher.encrypt(messageContexts.browserCommand, {
+          requestId,
+          deviceId: device.health.deviceId,
+          command: "flight-controller.attitude"
+        });
+        socket.timeout(5_000).emit(
+          "device:command",
+          encryptedRequest,
+          async (socketError: Error | null, message?: EncryptedEnvelope) => {
+            if (stopped) return;
+            try {
+              if (socketError || !message) {
+                throw socketError ?? new Error("Pi did not answer");
+              }
+              const result = await cipher.decrypt<DeviceCommandResult>(
+                messageContexts.browserCommandResult,
+                message
+              );
+              if (!result.success) throw new Error(result.error ?? "Attitude sample failed");
+              const next = JSON.parse(result.output) as AttitudeSample;
+              if (!Number.isFinite(next.rollDeg) || !Number.isFinite(next.pitchDeg)) {
+                throw new Error("Pi returned invalid attitude data");
+              }
+              setSample(next);
+              setMonitorState("live");
+              setError("");
+            } catch (failure) {
+              setMonitorState("error");
+              setError(failure instanceof Error ? failure.message : "Attitude sample failed");
+            } finally {
+              if (!stopped) timer = window.setTimeout(requestSample, 1_000);
+            }
+          }
+        );
+      } catch (failure) {
+        if (stopped) return;
+        setMonitorState("error");
+        setError(failure instanceof Error ? failure.message : "Could not request attitude");
+        timer = window.setTimeout(requestSample, 1_000);
+      }
+    }
+
+    setMonitorState("connecting");
+    void requestSample();
+    return () => {
+      stopped = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [cipher, device.health.deviceId, supported]);
+
+  const roll = Math.max(-180, Math.min(180, sample?.rollDeg ?? 0));
+  const pitch = Math.max(-90, Math.min(90, sample?.pitchDeg ?? 0));
+  const balanceMagnitude = Math.hypot(roll, pitch);
+  const level = balanceMagnitude <= 2;
+
+  return (
+    <section className="detail-panel horizon-panel">
+      <div className="panel-heading horizon-heading">
+        <div>
+          <p className="eyebrow">Betaflight attitude</p>
+          <h2>Balance to horizon</h2>
+        </div>
+        <span className={`horizon-state horizon-${monitorState}`}>
+          <i />
+          {monitorState}
+        </span>
+      </div>
+
+      <div className="horizon-layout">
+        <div
+          className="artificial-horizon"
+          aria-label={`Roll ${roll.toFixed(1)} degrees, pitch ${pitch.toFixed(1)} degrees`}
+          role="img"
+        >
+          <div
+            className="horizon-world"
+            style={{ transform: `translateY(${pitch * 2}px) rotate(${-roll}deg)` }}
+          >
+            <div className="horizon-sky" />
+            <div className="horizon-line" />
+            <div className="horizon-ground" />
+          </div>
+          <div className="pitch-mark pitch-mark-up"><span>10</span></div>
+          <div className="pitch-mark pitch-mark-center" />
+          <div className="pitch-mark pitch-mark-down"><span>10</span></div>
+          <div className="aircraft-reference"><i /><b /><i /></div>
+          <div className="roll-pointer">▼</div>
+        </div>
+
+        <div className="attitude-readout">
+          <div>
+            <span>Roll</span>
+            <strong>{sample ? `${roll.toFixed(1)}°` : "—"}</strong>
+          </div>
+          <div>
+            <span>Pitch</span>
+            <strong>{sample ? `${pitch.toFixed(1)}°` : "—"}</strong>
+          </div>
+          <div>
+            <span>Level state</span>
+            <strong className={level && sample ? "is-level" : ""}>
+              {!sample ? "Waiting" : level ? "Level" : "Offset"}
+            </strong>
+          </div>
+          <div>
+            <span>Sample</span>
+            <strong>{sample ? shortTime(sample.sampledAt) : "No sample"}</strong>
+          </div>
+        </div>
+      </div>
+
+      <p className="horizon-note">
+        {error
+          ? error
+          : !online
+          ? "Monitoring is paused while the Pi is offline."
+          : controller?.protocol !== "msp"
+          ? "This monitor currently supports Betaflight over MSP only."
+          : "Read-only roll and pitch samples are requested from Betaflight through this Pi."}
+      </p>
+    </section>
+  );
+}
+
+function CameraPanel({
+  device,
+  cipher,
+  online
+}: {
+  device: DeviceState;
+  cipher: MessageCipher;
+  online: boolean;
+}) {
+  const [health, setHealth] = useState<CameraHealth | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [healthError, setHealthError] = useState("");
+  const [capturing, setCapturing] = useState(false);
+  const [captureError, setCaptureError] = useState("");
+  const [capture, setCapture] = useState<CameraCapture | null>(null);
+
+  async function sendCameraCommand(
+    command: "camera.health" | "camera.capture",
+    timeout: number
+  ): Promise<DeviceCommandResult> {
+    const requestId = crypto.randomUUID();
+    const encryptedRequest = await cipher.encrypt(messageContexts.browserCommand, {
+      requestId,
+      deviceId: device.health.deviceId,
+      command
+    });
+    return new Promise((resolve, reject) => {
+      socket.timeout(timeout).emit(
+        "device:command",
+        encryptedRequest,
+        async (error: Error | null, message?: EncryptedEnvelope) => {
+          if (error || !message) {
+            reject(error ?? new Error("Pi did not answer"));
+            return;
+          }
+          try {
+            resolve(
+              await cipher.decrypt<DeviceCommandResult>(
+                messageContexts.browserCommandResult,
+                message
+              )
+            );
+          } catch (failure) {
+            reject(failure);
+          }
+        }
+      );
+    });
+  }
+
+  useEffect(() => {
+    let stopped = false;
+    let timer: number | undefined;
+    let failures = 0;
+
+    async function checkCamera() {
+      if (stopped || !online || document.hidden) return;
+      setChecking(true);
+      try {
+        const result = await sendCameraCommand("camera.health", 8_000);
+        if (!result.success) throw new Error(result.error ?? "Camera health check failed");
+        const next = JSON.parse(result.output) as CameraHealth;
+        if (!next.checkedAt || typeof next.available !== "boolean") {
+          throw new Error("Pi returned invalid camera health data");
+        }
+        failures = 0;
+        setHealth(next);
+        setHealthError("");
+      } catch (failure) {
+        failures += 1;
+        if (failures >= 3) {
+          setHealthError(
+            failure instanceof Error ? failure.message : "Camera health check failed"
+          );
+        }
+      } finally {
+        if (!stopped) {
+          setChecking(false);
+          timer = window.setTimeout(checkCamera, 5_000);
+        }
+      }
+    }
+
+    function handleVisibility() {
+      if (document.hidden || stopped || !online) return;
+      if (timer !== undefined) window.clearTimeout(timer);
+      void checkCamera();
+    }
+
+    if (online) void checkCamera();
+    else {
+      setChecking(false);
+      setHealthError("");
+    }
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      stopped = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [cipher, device.health.deviceId, online]);
+
+  async function takePicture() {
+    if (capturing || !health?.available) return;
+    setCapturing(true);
+    setCaptureError("");
+    try {
+      const result = await sendCameraCommand("camera.capture", 15_000);
+      if (!result.success) throw new Error(result.error ?? "Picture capture failed");
+      const next = JSON.parse(result.output) as CameraCapture;
+      if (
+        next.mimeType !== "image/jpeg" ||
+        !next.imageBase64 ||
+        !Number.isFinite(next.sizeBytes)
+      ) {
+        throw new Error("Pi returned invalid picture data");
+      }
+      setCapture(next);
+    } catch (failure) {
+      setCaptureError(failure instanceof Error ? failure.message : "Picture capture failed");
+    } finally {
+      setCapturing(false);
+    }
+  }
+
+  const status = !online
+    ? "offline"
+    : healthError
+    ? "error"
+    : health?.status ?? (checking ? "checking" : "unknown");
+
+  return (
+    <section className="detail-panel camera-panel">
+      <div className="panel-heading camera-heading">
+        <div>
+          <p className="eyebrow">Pi camera</p>
+          <h2>Camera health and capture</h2>
+        </div>
+        <span className={`camera-status camera-${status}`}>
+          <i />
+          {status}
+        </span>
+      </div>
+
+      <div className="camera-layout">
+        <div className="camera-overview">
+          <div className="camera-lens" aria-hidden="true">
+            <i><b /></i>
+          </div>
+          <div className="camera-facts">
+            <div>
+              <span>Camera</span>
+              <strong>{health?.model ?? (health?.available ? "Detected camera" : "Not detected")}</strong>
+            </div>
+            <div>
+              <span>Backend</span>
+              <strong>{health?.backend ?? "Waiting for Pi"}</strong>
+            </div>
+            <div>
+              <span>Health check</span>
+              <strong>{health?.checkedAt ? shortTime(health.checkedAt) : "No check received"}</strong>
+            </div>
+            <div>
+              <span>Capture profile</span>
+              <strong>1280 × 720 JPEG</strong>
+            </div>
+          </div>
+          <button
+            className="capture-button"
+            disabled={!online || !health?.available || capturing}
+            onClick={() => void takePicture()}
+          >
+            <span aria-hidden="true">●</span>
+            {capturing ? "Capturing…" : "Take picture"}
+          </button>
+          {(healthError || health?.error || captureError) && (
+            <div className="camera-error-message">
+              {captureError || healthError || health?.error}
+            </div>
+          )}
+          {!online && <p className="camera-help">Camera checks pause while the Pi is offline.</p>}
+          {online && health?.status === "missing" && (
+            <p className="camera-help">{health.details ?? "No CSI camera was reported."}</p>
+          )}
+        </div>
+
+        <div className={`camera-preview ${capture ? "has-capture" : ""}`}>
+          {capture ? (
+            <>
+              <img
+                alt={`Captured by ${device.health.deviceId} at ${shortTime(capture.capturedAt)}`}
+                src={`data:${capture.mimeType};base64,${capture.imageBase64}`}
+              />
+              <div className="capture-meta">
+                <div>
+                  <strong>{shortTime(capture.capturedAt)}</strong>
+                  <span>{capture.width} × {capture.height} · {bytes(capture.sizeBytes)}</span>
+                </div>
+                <div>
+                  <a
+                    download={`${device.health.deviceId}-${capture.capturedAt.replace(/[:.]/g, "-")}.jpg`}
+                    href={`data:${capture.mimeType};base64,${capture.imageBase64}`}
+                  >
+                    Download
+                  </a>
+                  <button onClick={() => setCapture(null)}>Dismiss</button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="preview-empty">
+              <span aria-hidden="true">▣</span>
+              <strong>No picture captured</strong>
+              <p>Pictures remain in this browser tab until dismissed or the page is closed.</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function DeviceDetail({
   device,
   cipher,
@@ -577,6 +974,8 @@ function DeviceDetail({
       </div>
 
       <FlightControllerPanel device={device} />
+      <HorizonBalance device={device} cipher={cipher} online={status === "online"} />
+      <CameraPanel device={device} cipher={cipher} online={status === "online"} />
 
       <section className="detail-panel command-history">
         <div className="panel-heading">

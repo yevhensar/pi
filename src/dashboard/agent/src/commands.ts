@@ -5,6 +5,7 @@ import type {
   DeviceCommandResult
 } from "@pi-health/shared";
 import { config } from "./config.js";
+import { cameraHealth, captureCameraPhoto } from "./camera.js";
 import { tryWithFlightControllerSerial } from "./flight-controller-lock.js";
 
 type CommandDefinition = {
@@ -56,6 +57,54 @@ export async function executeCommand(
   const definition = commands[request.command];
 
   try {
+    if (request.command === "camera.health") {
+      return {
+        ...request,
+        deviceId,
+        success: true,
+        output: JSON.stringify(await cameraHealth()),
+        startedAt,
+        completedAt: new Date().toISOString()
+      };
+    }
+
+    if (request.command === "camera.capture") {
+      return {
+        ...request,
+        deviceId,
+        success: true,
+        output: JSON.stringify(await captureCameraPhoto()),
+        startedAt,
+        completedAt: new Date().toISOString()
+      };
+    }
+
+    if (request.command === "flight-controller.attitude") {
+      const output = await tryWithFlightControllerSerial(() => run(config.flightControllerPython, [
+        config.flightControllerScript,
+        "--device",
+        config.flightControllerDevice,
+        "--protocol",
+        "msp",
+        "--baud",
+        String(config.flightControllerBaud),
+        "--timeout",
+        String(config.flightControllerTimeoutMs / 1000),
+        "--action",
+        "attitude"
+      ]));
+      const response = JSON.parse(output) as { success: boolean; error?: string };
+      if (!response.success) throw new Error(response.error ?? "Attitude sample failed");
+      return {
+        ...request,
+        deviceId,
+        success: true,
+        output,
+        startedAt,
+        completedAt: new Date().toISOString()
+      };
+    }
+
     if (request.command === "flight-controller.motor-test.start") {
       if (!config.motorTestEnabled) {
         throw new Error("Motor test is disabled in the Pi deployment configuration");

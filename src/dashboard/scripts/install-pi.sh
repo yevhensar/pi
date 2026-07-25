@@ -148,6 +148,12 @@ if [[ $FLIGHT_CONTROLLER_ENABLED == true ]]; then
   usermod -a -G dialout "$SERVICE_USER"
 fi
 
+for camera_group in video render; do
+  if getent group "$camera_group" >/dev/null; then
+    usermod -a -G "$camera_group" "$SERVICE_USER"
+  fi
+done
+
 if [[ -d $SOURCE_DIR/node_modules/socket.io-client ]]; then
   cp -a "$SOURCE_DIR/node_modules" "$APP_DIR/node_modules"
   chown -R "$SERVICE_USER:$SERVICE_USER" "$APP_DIR"

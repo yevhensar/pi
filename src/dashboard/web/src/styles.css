@@ -254,6 +254,76 @@ main {
 .fc-empty { position: relative; margin-top: 16px; padding: 16px; border: 1px dashed rgba(255,255,255,.14); border-radius: 12px; color: #91a399; font-size: 10px; text-align: center; }
 .flight-controller .fc-footer { position: relative; margin-top: 18px; padding: 0; display: flex; justify-content: space-between; border: 0; color: #71877c; font-size: 8px; letter-spacing: .5px; text-transform: uppercase; }
 
+.horizon-panel { margin-top: 16px; overflow: hidden; }
+.horizon-heading { align-items: center; }
+.horizon-state { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .7px; text-transform: uppercase; }
+.horizon-state i { width: 7px; height: 7px; border-radius: 50%; background: #9aa39e; }
+.horizon-live { color: #16845b; }
+.horizon-live i { background: #24aa73; box-shadow: 0 0 0 4px rgba(36,170,115,.12); }
+.horizon-connecting i { background: #d3a538; animation: horizon-pulse 1s ease-in-out infinite; }
+.horizon-error { color: #9c4e3c; }
+.horizon-error i { background: #cf725e; }
+.horizon-layout { margin-top: 24px; display: grid; grid-template-columns: minmax(300px, 1.35fr) minmax(230px, .65fr); gap: 24px; align-items: center; }
+.artificial-horizon { position: relative; height: 320px; overflow: hidden; border: 10px solid #1d2924; border-radius: 24px; background: #75b9da; box-shadow: inset 0 0 0 1px rgba(255,255,255,.18), 0 16px 35px rgba(23,35,30,.13); }
+.horizon-world { position: absolute; width: 160%; height: 200%; left: -30%; top: -50%; transform-origin: center; transition: transform .28s linear; }
+.horizon-sky, .horizon-ground { position: absolute; width: 100%; height: 50%; left: 0; }
+.horizon-sky { top: 0; background: linear-gradient(#4f9bc3, #88c9e4); }
+.horizon-ground { bottom: 0; background: linear-gradient(#9b633b, #68422c); }
+.horizon-line { position: absolute; z-index: 1; width: 100%; height: 3px; top: calc(50% - 1px); background: rgba(255,255,255,.95); box-shadow: 0 1px 0 rgba(43,27,18,.45); }
+.pitch-mark { position: absolute; z-index: 2; width: 72px; height: 1px; left: 50%; transform: translateX(-50%); background: rgba(255,255,255,.85); box-shadow: 0 1px 1px rgba(0,0,0,.25); }
+.pitch-mark span { position: absolute; right: -20px; top: -6px; color: white; font: 8px ui-monospace, monospace; text-shadow: 0 1px 2px #20352c; }
+.pitch-mark-up { top: calc(50% - 42px); }
+.pitch-mark-center { width: 105px; top: 50%; }
+.pitch-mark-down { top: calc(50% + 42px); }
+.aircraft-reference { position: absolute; z-index: 4; left: 50%; top: 50%; display: flex; align-items: center; transform: translate(-50%, -50%); filter: drop-shadow(0 1px 1px rgba(0,0,0,.5)); }
+.aircraft-reference i { width: 72px; height: 4px; border-radius: 3px; background: #ffe56b; }
+.aircraft-reference b { width: 12px; height: 12px; margin: 0 5px; border: 3px solid #ffe56b; border-radius: 50%; }
+.roll-pointer { position: absolute; z-index: 4; left: 50%; top: 10px; transform: translateX(-50%); color: #ffe56b; font-size: 16px; text-shadow: 0 1px 2px rgba(0,0,0,.5); }
+.attitude-readout { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.attitude-readout > div { padding: 18px; border: 1px solid #e3e8e3; border-radius: 13px; background: #f5f7f3; }
+.attitude-readout span { display: block; margin-bottom: 10px; color: #89928d; font-size: 8px; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; }
+.attitude-readout strong { display: block; font-size: 18px; letter-spacing: -.4px; }
+.attitude-readout strong.is-level { color: #16845b; }
+.horizon-note { margin: 20px 0 0; padding-top: 16px; border-top: 1px solid #e8ece8; color: var(--muted); font-size: 10px; line-height: 1.55; }
+@keyframes horizon-pulse { 50% { opacity: .35; } }
+
+.camera-panel { margin-top: 16px; }
+.camera-heading { align-items: center; }
+.camera-status { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .7px; text-transform: uppercase; }
+.camera-status i { width: 7px; height: 7px; border-radius: 50%; background: #98a19c; }
+.camera-healthy { color: #16845b; }
+.camera-healthy i { background: #24aa73; box-shadow: 0 0 0 4px rgba(36,170,115,.12); }
+.camera-checking i { background: #d3a538; animation: horizon-pulse 1s ease-in-out infinite; }
+.camera-busy, .camera-error { color: #9c4e3c; }
+.camera-busy i, .camera-error i { background: #cf725e; }
+.camera-missing i, .camera-offline i { background: #8d9892; }
+.camera-layout { margin-top: 24px; display: grid; grid-template-columns: minmax(280px, .7fr) minmax(420px, 1.3fr); gap: 24px; }
+.camera-overview { min-width: 0; }
+.camera-lens { width: 76px; height: 76px; margin-bottom: 22px; display: grid; place-items: center; border: 1px solid #dbe3dc; border-radius: 22px; background: #edf2ec; }
+.camera-lens > i { width: 44px; height: 44px; display: grid; place-items: center; border: 6px solid #29483b; border-radius: 50%; background: #182d25; box-shadow: inset 0 0 0 5px #426857, 0 0 0 4px rgba(22,132,91,.08); }
+.camera-lens b { width: 11px; height: 11px; border-radius: 50%; background: #78a9bd; box-shadow: -5px -5px 8px rgba(255,255,255,.25); }
+.camera-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.camera-facts > div { min-width: 0; padding: 13px; border-radius: 11px; background: #f5f7f3; }
+.camera-facts span { display: block; margin-bottom: 7px; color: #89928d; font-size: 8px; font-weight: 800; letter-spacing: .7px; text-transform: uppercase; }
+.camera-facts strong { display: block; overflow: hidden; color: var(--ink); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.capture-button { width: 100%; margin-top: 14px; padding: 13px 16px; display: flex; justify-content: center; align-items: center; gap: 9px; border: 0; border-radius: 11px; color: white; background: var(--green); cursor: pointer; font-size: 11px; font-weight: 800; }
+.capture-button span { color: #e9ff9c; font-size: 9px; }
+.capture-button:disabled { cursor: not-allowed; opacity: .45; }
+.camera-error-message { margin-top: 12px; padding: 11px 13px; border-radius: 9px; color: #914736; background: #f7e6e1; font-size: 10px; line-height: 1.5; }
+.camera-help { margin: 12px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.camera-preview { min-height: 350px; overflow: hidden; display: grid; place-items: center; border: 1px dashed #cbd5cc; border-radius: 16px; background: #f3f6f1; }
+.camera-preview.has-capture { display: block; border-style: solid; background: #14201b; }
+.camera-preview img { width: 100%; max-height: 520px; display: block; object-fit: contain; background: #111b17; }
+.preview-empty { max-width: 260px; padding: 30px; color: var(--muted); text-align: center; }
+.preview-empty > span { width: 54px; height: 54px; margin: 0 auto 17px; display: grid; place-items: center; border: 1px solid #d5ddd6; border-radius: 15px; color: #668174; background: white; font-size: 21px; }
+.preview-empty strong { display: block; color: #405149; font-size: 12px; }
+.preview-empty p { margin: 8px 0 0; font-size: 10px; line-height: 1.55; }
+.capture-meta { padding: 13px 15px; display: flex; justify-content: space-between; align-items: center; gap: 20px; color: #e0e9e3; background: #14201b; }
+.capture-meta strong { display: block; font-size: 10px; }
+.capture-meta span { display: block; margin-top: 4px; color: #879c91; font-size: 8px; }
+.capture-meta > div:last-child { display: flex; gap: 8px; }
+.capture-meta a, .capture-meta button { padding: 7px 10px; border: 1px solid #3c5147; border-radius: 7px; color: #d9e7dd; background: transparent; cursor: pointer; font-size: 9px; font-weight: 800; text-decoration: none; }
+
 .empty-state {
   padding: 80px 30px; text-align: center;
   border: 1px dashed #cbd4cc; border-radius: 22px;
@@ -274,6 +344,8 @@ footer { padding: 24px clamp(24px, 5vw, 76px); display: flex; justify-content: s
   .detail-metrics { grid-template-columns: 1fr 1fr; }
   .fc-metrics { grid-template-columns: 1fr 1fr; }
   .fc-secondary { grid-template-columns: 1fr 1fr; }
+  .horizon-layout { grid-template-columns: 1fr; }
+  .camera-layout { grid-template-columns: 1fr; }
   .fc-metrics > div { border-bottom: 1px solid rgba(255,255,255,.08); }
 }
 @media (max-width: 600px) {
@@ -300,6 +372,11 @@ footer { padding: 24px clamp(24px, 5vw, 76px); display: flex; justify-content: s
   .fc-heading { align-items: flex-start; flex-direction: column; }
   .fc-metrics { grid-template-columns: 1fr; }
   .fc-secondary { grid-template-columns: 1fr; }
+  .artificial-horizon { height: 250px; }
+  .attitude-readout { grid-template-columns: 1fr 1fr; }
+  .camera-facts { grid-template-columns: 1fr; }
+  .camera-preview { min-height: 260px; }
+  .capture-meta { align-items: flex-start; flex-direction: column; }
   .fc-metrics > div { border-right: 0; }
   .flight-controller .fc-footer { gap: 8px; flex-direction: column; }
 }

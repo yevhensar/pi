@@ -88,7 +88,7 @@ def parse_args():
     parser.add_argument("--timeout", type=float, default=8)
     parser.add_argument(
         "--action",
-        choices=("health", "motor-test-start", "motor-test-stop"),
+        choices=("health", "attitude", "motor-test-start", "motor-test-stop"),
         default="health",
     )
     parser.add_argument("--output", type=int, default=1050)
@@ -483,6 +483,35 @@ def set_msp_motors(client, motor_count, output):
     client.command(MSP_SET_MOTOR, struct.pack("<" + ("H" * motor_count), *values))
 
 
+def read_msp_attitude(device, baud, timeout):
+    resolved_device = autodetect_device() if device == "auto" else device
+    if not resolved_device or not os.path.exists(resolved_device):
+        return {"success": False, "error": "Betaflight serial device is unavailable"}
+
+    client = None
+    try:
+        client = MspClient(resolved_device, baud, timeout)
+        api = client.command(MSP_API_VERSION)
+        if len(api) < 3:
+            raise MspError("Device did not return a valid MSP API version")
+        attitude = unpack("<hhh", client.command(MSP_ATTITUDE))
+        if not attitude:
+            raise MspError("Betaflight did not return valid attitude data")
+        return {
+            "success": True,
+            "protocol": "msp",
+            "rollDeg": attitude[0] / 10,
+            "pitchDeg": attitude[1] / 10,
+            "headingDeg": attitude[2],
+            "sampledAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+    except Exception as error:
+        return {"success": False, "error": str(error)}
+    finally:
+        if client is not None:
+            client.close()
+
+
 def run_motor_action(device, baud, timeout, action, output, duration):
     resolved_device = autodetect_device() if device == "auto" else device
     if not resolved_device or not os.path.exists(resolved_device):
@@ -547,6 +576,12 @@ def main():
     args = parse_args()
     if args.baud < 1200 or args.baud > 4_000_000:
         emit(result("error", error="Baud must be between 1200 and 4000000"))
+        return
+    if args.action == "attitude":
+        if args.protocol == "mavlink":
+            emit({"success": False, "action": args.action, "error": "Horizon monitoring currently requires Betaflight MSP"})
+            return
+        emit(read_msp_attitude(args.device, args.baud, max(1, args.timeout)))
         return
     if args.action != "health":
         if args.protocol == "mavlink":
