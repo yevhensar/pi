@@ -99,6 +99,7 @@ export const deviceCommandNames = [
   "processes.top",
   "camera.health",
   "camera.capture",
+  "camera.preview",
   "flight-controller.attitude",
   "flight-controller.motor-test.start",
   "flight-controller.motor-test.stop"

@@ -258,6 +258,7 @@ Supported command names are:
 - `processes.top`
 - `camera.health`
 - `camera.capture`
+- `camera.preview`
 - `flight-controller.attitude`
 - `flight-controller.motor-test.start`
 - `flight-controller.motor-test.stop`
@@ -618,6 +619,7 @@ arguments:
 | `processes.top` | `ps -eo ... --sort=-%cpu` |
 | `camera.health` | `rpicam-still --list-cameras` with legacy fallback |
 | `camera.capture` | Fixed, bounded `rpicam-still` or `libcamera-still` JPEG capture |
+| `camera.preview` | Fixed 640-by-360 JPEG for the interval preview |
 
 Commands use `execFile`, not a shell. Diagnostic text output is limited to
 64,000 characters, the child-process buffer is limited to 256 KiB, and commands
@@ -661,6 +663,13 @@ and a four-megabyte size limit, returns the image through the encrypted command
 response, and removes the temporary directory in a `finally` block. The browser
 keeps the preview in tab memory and offers download and dismiss controls. The
 server does not persist captured images.
+
+When **Live interval view** is enabled, the browser requests an encrypted
+`camera.preview` frame after the previous request completes, with a two-second
+delay between frames. Preview images use a lower-bandwidth 640-by-360 JPEG
+profile. Previewing pauses when the tab is hidden or the Pi goes offline, and
+the full-resolution capture button is disabled while previewing to avoid
+overlapping access to the camera.
 
 ## 14. Configuration
 

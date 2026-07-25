@@ -7,6 +7,8 @@ import type { CameraCapture, CameraHealth } from "@pi-health/shared";
 const CAMERA_BACKENDS = ["rpicam-still", "libcamera-still"] as const;
 const CAPTURE_WIDTH = 1280;
 const CAPTURE_HEIGHT = 720;
+const PREVIEW_WIDTH = 640;
+const PREVIEW_HEIGHT = 360;
 const MAX_CAPTURE_BYTES = 4 * 1024 * 1024;
 
 type CameraBackend = (typeof CAMERA_BACKENDS)[number];
@@ -104,7 +106,9 @@ export async function cameraHealth(): Promise<CameraHealth> {
   };
 }
 
-export async function captureCameraPhoto(): Promise<CameraCapture> {
+export async function captureCameraPhoto(
+  profile: "capture" | "preview" = "capture"
+): Promise<CameraCapture> {
   const health = await cameraHealth();
   if (!health.available || !health.backend) {
     throw new Error(health.error ?? health.details ?? "Camera is unavailable");
@@ -112,17 +116,21 @@ export async function captureCameraPhoto(): Promise<CameraCapture> {
 
   const captureDirectory = await mkdtemp(join(tmpdir(), "pi-camera-"));
   const outputPath = join(captureDirectory, "capture.jpg");
+  const width = profile === "preview" ? PREVIEW_WIDTH : CAPTURE_WIDTH;
+  const height = profile === "preview" ? PREVIEW_HEIGHT : CAPTURE_HEIGHT;
+  const quality = profile === "preview" ? "65" : "85";
+  const warmupMs = profile === "preview" ? "300" : "1000";
   try {
     await run(
       health.backend,
       [
         "--output", outputPath,
-        "--width", String(CAPTURE_WIDTH),
-        "--height", String(CAPTURE_HEIGHT),
+        "--width", String(width),
+        "--height", String(height),
         "--encoding", "jpg",
-        "--quality", "85",
+        "--quality", quality,
         "--nopreview",
-        "--timeout", "1000"
+        "--timeout", warmupMs
       ],
       10_000
     );
@@ -140,8 +148,8 @@ export async function captureCameraPhoto(): Promise<CameraCapture> {
       capturedAt: new Date().toISOString(),
       backend: health.backend,
       mimeType: "image/jpeg",
-      width: CAPTURE_WIDTH,
-      height: CAPTURE_HEIGHT,
+      width,
+      height,
       sizeBytes: metadata.size,
       imageBase64: image.toString("base64")
     };

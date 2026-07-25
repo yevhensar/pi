@@ -309,6 +309,13 @@ main {
 .capture-button { width: 100%; margin-top: 14px; padding: 13px 16px; display: flex; justify-content: center; align-items: center; gap: 9px; border: 0; border-radius: 11px; color: white; background: var(--green); cursor: pointer; font-size: 11px; font-weight: 800; }
 .capture-button span { color: #e9ff9c; font-size: 9px; }
 .capture-button:disabled { cursor: not-allowed; opacity: .45; }
+.live-preview-toggle { margin-top: 10px; padding: 12px 13px; display: flex; align-items: center; gap: 11px; border: 1px solid #dce4dd; border-radius: 11px; background: #f7f9f6; cursor: pointer; }
+.live-preview-toggle.is-active { border-color: #86b29d; background: #edf6f0; }
+.live-preview-toggle input { width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--green); }
+.live-preview-toggle:has(input:disabled) { cursor: not-allowed; opacity: .5; }
+.live-preview-toggle span { min-width: 0; }
+.live-preview-toggle strong { display: block; color: var(--ink); font-size: 10px; }
+.live-preview-toggle small { display: block; margin-top: 4px; color: var(--muted); font-size: 8px; line-height: 1.4; }
 .camera-error-message { margin-top: 12px; padding: 11px 13px; border-radius: 9px; color: #914736; background: #f7e6e1; font-size: 10px; line-height: 1.5; }
 .camera-help { margin: 12px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
 .camera-preview { min-height: 350px; overflow: hidden; display: grid; place-items: center; border: 1px dashed #cbd5cc; border-radius: 16px; background: #f3f6f1; }

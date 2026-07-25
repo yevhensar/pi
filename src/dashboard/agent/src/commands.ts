@@ -79,6 +79,17 @@ export async function executeCommand(
       };
     }
 
+    if (request.command === "camera.preview") {
+      return {
+        ...request,
+        deviceId,
+        success: true,
+        output: JSON.stringify(await captureCameraPhoto("preview")),
+        startedAt,
+        completedAt: new Date().toISOString()
+      };
+    }
+
     if (request.command === "flight-controller.attitude") {
       const output = await tryWithFlightControllerSerial(() => run(config.flightControllerPython, [
         config.flightControllerScript,

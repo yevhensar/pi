@@ -568,9 +568,12 @@ function CameraPanel({
   const [capturing, setCapturing] = useState(false);
   const [captureError, setCaptureError] = useState("");
   const [capture, setCapture] = useState<CameraCapture | null>(null);
+  const [liveView, setLiveView] = useState(false);
+  const [previewFrame, setPreviewFrame] = useState<CameraCapture | null>(null);
+  const [previewError, setPreviewError] = useState("");
 
   async function sendCameraCommand(
-    command: "camera.health" | "camera.capture",
+    command: "camera.health" | "camera.capture" | "camera.preview",
     timeout: number
   ): Promise<DeviceCommandResult> {
     const requestId = crypto.randomUUID();
@@ -609,7 +612,7 @@ function CameraPanel({
     let failures = 0;
 
     async function checkCamera() {
-      if (stopped || !online || document.hidden) return;
+      if (stopped || !online || liveView || document.hidden) return;
       setChecking(true);
       try {
         const result = await sendCameraCommand("camera.health", 8_000);
@@ -631,18 +634,18 @@ function CameraPanel({
       } finally {
         if (!stopped) {
           setChecking(false);
-          timer = window.setTimeout(checkCamera, 5_000);
+          if (!liveView) timer = window.setTimeout(checkCamera, 5_000);
         }
       }
     }
 
     function handleVisibility() {
-      if (document.hidden || stopped || !online) return;
+      if (document.hidden || stopped || !online || liveView) return;
       if (timer !== undefined) window.clearTimeout(timer);
       void checkCamera();
     }
 
-    if (online) void checkCamera();
+    if (online && !liveView) void checkCamera();
     else {
       setChecking(false);
       setHealthError("");
@@ -653,10 +656,58 @@ function CameraPanel({
       if (timer !== undefined) window.clearTimeout(timer);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [cipher, device.health.deviceId, online]);
+  }, [cipher, device.health.deviceId, liveView, online]);
+
+  useEffect(() => {
+    let stopped = false;
+    let timer: number | undefined;
+    let failures = 0;
+
+    async function updatePreview() {
+      if (stopped || !liveView || !online || !health?.available || document.hidden) return;
+      try {
+        const result = await sendCameraCommand("camera.preview", 12_000);
+        if (!result.success) throw new Error(result.error ?? "Live preview failed");
+        const next = JSON.parse(result.output) as CameraCapture;
+        if (
+          next.mimeType !== "image/jpeg" ||
+          !next.imageBase64 ||
+          next.width !== 640 ||
+          next.height !== 360
+        ) {
+          throw new Error("Pi returned invalid preview data");
+        }
+        failures = 0;
+        setPreviewFrame(next);
+        setPreviewError("");
+      } catch (failure) {
+        failures += 1;
+        if (failures >= 3) {
+          setPreviewError(failure instanceof Error ? failure.message : "Live preview failed");
+        }
+      } finally {
+        if (!stopped && liveView) timer = window.setTimeout(updatePreview, 2_000);
+      }
+    }
+
+    function handleVisibility() {
+      if (document.hidden || stopped || !liveView) return;
+      if (timer !== undefined) window.clearTimeout(timer);
+      void updatePreview();
+    }
+
+    if (liveView && online && health?.available) void updatePreview();
+    if (!liveView) setPreviewError("");
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      stopped = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [cipher, device.health.deviceId, health?.available, liveView, online]);
 
   async function takePicture() {
-    if (capturing || !health?.available) return;
+    if (capturing || liveView || !health?.available) return;
     setCapturing(true);
     setCaptureError("");
     try {
@@ -683,6 +734,7 @@ function CameraPanel({
     : healthError
     ? "error"
     : health?.status ?? (checking ? "checking" : "unknown");
+  const displayedCapture = liveView ? previewFrame ?? capture : capture ?? previewFrame;
 
   return (
     <section className="detail-panel camera-panel">
@@ -722,15 +774,27 @@ function CameraPanel({
           </div>
           <button
             className="capture-button"
-            disabled={!online || !health?.available || capturing}
+            disabled={!online || !health?.available || capturing || liveView}
             onClick={() => void takePicture()}
           >
             <span aria-hidden="true">●</span>
             {capturing ? "Capturing…" : "Take picture"}
           </button>
-          {(healthError || health?.error || captureError) && (
+          <label className={`live-preview-toggle ${liveView ? "is-active" : ""}`}>
+            <input
+              checked={liveView}
+              disabled={!online || !health?.available}
+              onChange={(event) => setLiveView(event.target.checked)}
+              type="checkbox"
+            />
+            <span>
+              <strong>Live interval view</strong>
+              <small>Refresh a 640 × 360 frame every 2 seconds</small>
+            </span>
+          </label>
+          {(healthError || health?.error || captureError || previewError) && (
             <div className="camera-error-message">
-              {captureError || healthError || health?.error}
+              {captureError || previewError || healthError || health?.error}
             </div>
           )}
           {!online && <p className="camera-help">Camera checks pause while the Pi is offline.</p>}
@@ -739,26 +803,36 @@ function CameraPanel({
           )}
         </div>
 
-        <div className={`camera-preview ${capture ? "has-capture" : ""}`}>
-          {capture ? (
+        <div className={`camera-preview ${displayedCapture ? "has-capture" : ""}`}>
+          {displayedCapture ? (
             <>
               <img
-                alt={`Captured by ${device.health.deviceId} at ${shortTime(capture.capturedAt)}`}
-                src={`data:${capture.mimeType};base64,${capture.imageBase64}`}
+                alt={`${liveView ? "Live preview" : "Captured"} by ${device.health.deviceId} at ${shortTime(displayedCapture.capturedAt)}`}
+                src={`data:${displayedCapture.mimeType};base64,${displayedCapture.imageBase64}`}
               />
               <div className="capture-meta">
                 <div>
-                  <strong>{shortTime(capture.capturedAt)}</strong>
-                  <span>{capture.width} × {capture.height} · {bytes(capture.sizeBytes)}</span>
+                  <strong>{liveView ? "Live interval view" : shortTime(displayedCapture.capturedAt)}</strong>
+                  <span>
+                    {displayedCapture.width} × {displayedCapture.height} · {bytes(displayedCapture.sizeBytes)}
+                    {liveView ? ` · ${shortTime(displayedCapture.capturedAt)}` : ""}
+                  </span>
                 </div>
                 <div>
                   <a
-                    download={`${device.health.deviceId}-${capture.capturedAt.replace(/[:.]/g, "-")}.jpg`}
-                    href={`data:${capture.mimeType};base64,${capture.imageBase64}`}
+                    download={`${device.health.deviceId}-${displayedCapture.capturedAt.replace(/[:.]/g, "-")}.jpg`}
+                    href={`data:${displayedCapture.mimeType};base64,${displayedCapture.imageBase64}`}
                   >
                     Download
                   </a>
-                  <button onClick={() => setCapture(null)}>Dismiss</button>
+                  <button
+                    onClick={() => {
+                      setCapture(null);
+                      setPreviewFrame(null);
+                    }}
+                  >
+                    Dismiss
+                  </button>
                 </div>
               </div>
             </>
