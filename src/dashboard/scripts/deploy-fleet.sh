@@ -93,6 +93,11 @@ for ((client_index = 0; client_index < CLIENT_COUNT; client_index++)); do
           duration_ms: 2000
         }
       }),
+      object_detection: ($client.object_detection // $root.object_detection // {
+        enabled: false,
+        interval_ms: 1000,
+        object_type: "car"
+      }),
       server_url: ($client.server_url // $server_url)
     }
   ' "$CONFIG_FILE" > "$client_file"

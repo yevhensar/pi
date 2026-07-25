@@ -11,6 +11,8 @@ export const messageContexts = {
   browserCommandResult: "device:command:result",
   agentCommand: "agent:command",
   agentCommandResult: "agent:command:result",
+  detectionFrame: "device:detection-frame",
+  detectionFrameAcknowledgement: "device:detection-frame:acknowledgement",
   apiHealth: "api:health",
   apiDevices: "api:devices",
   apiDevice: "api:device"

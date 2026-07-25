@@ -37,9 +37,22 @@ export const config = {
     process.env.FLIGHT_CONTROLLER_MOTOR_TEST_DURATION_MS ?? "2000",
     10
   ),
+  objectDetectionEnabled: process.env.OBJECT_DETECTION_ENABLED === "true",
+  objectDetectionIntervalMs: Number.parseInt(
+    process.env.OBJECT_DETECTION_INTERVAL_MS ?? "1000",
+    10
+  ),
+  objectDetectionObjectType:
+    process.env.OBJECT_DETECTION_OBJECT_TYPE?.trim() || "car",
   healthIntervalMs
 };
 
 if (!config.messageToken) {
   throw new Error("MESSAGE_TOKEN is required");
+}
+if (
+  !Number.isFinite(config.objectDetectionIntervalMs) ||
+  config.objectDetectionIntervalMs < 250
+) {
+  throw new Error("OBJECT_DETECTION_INTERVAL_MS must be at least 250");
 }

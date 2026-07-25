@@ -8,9 +8,13 @@ import type {
   DeviceCommandName,
   DeviceCommandRequest,
   DeviceCommandResult,
+  DetectionFrame,
+  DetectionFrameAcknowledgement,
   EncryptedEnvelope,
   HealthAcknowledgement,
   HealthCheck,
+  ObjectDetection,
+  ObjectDetectionHealth,
   ServerToSocketEvents
 } from "@pi-health/shared";
 import { createMessageCipher, deviceCommandNames, messageContexts } from "@pi-health/shared";
@@ -25,6 +29,7 @@ const io = new Server<ClientToServerEvents, ServerToSocketEvents>(httpServer, {
 });
 const cipher = await createMessageCipher(config.messageToken);
 const devices = new DeviceStore();
+const detections = new Map<string, ObjectDetectionHealth>();
 
 app.disable("x-powered-by");
 app.use(express.json());
@@ -104,6 +109,99 @@ function commandError(
   };
 }
 
+function detectionCommandResult(request: DeviceCommandRequest): DeviceCommandResult {
+  const timestamp = new Date().toISOString();
+  const state = detections.get(request.deviceId) ?? {
+    status: "starting",
+    objectType: "car",
+    intervalMs: 1000,
+    objectPresent: false,
+    count: 0,
+    detections: []
+  } satisfies ObjectDetectionHealth;
+  return {
+    ...request,
+    success: true,
+    output: JSON.stringify(state),
+    startedAt: timestamp,
+    completedAt: timestamp
+  };
+}
+
+async function detectFrame(frame: DetectionFrame): Promise<boolean> {
+  const started = Date.now();
+  try {
+    if (
+      frame.mimeType !== "image/jpeg" ||
+      frame.width !== 1280 ||
+      frame.height !== 720 ||
+      frame.sizeBytes <= 0 ||
+      frame.sizeBytes > 4 * 1024 * 1024 ||
+      !frame.imageBase64
+    ) {
+      throw new Error("Invalid detection frame");
+    }
+    const image = Buffer.from(frame.imageBase64, "base64");
+    if (image.length !== frame.sizeBytes || image[0] !== 0xff || image[1] !== 0xd8) {
+      throw new Error("Detection frame is not a valid bounded JPEG");
+    }
+    const form = new FormData();
+    form.append("file", new Blob([image], { type: "image/jpeg" }), "camera.jpg");
+    const response = await fetch(config.objectDetectionApiUrl, {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.timeout(config.objectDetectionTimeoutMs)
+    });
+    if (!response.ok) {
+      throw new Error(`Detector API returned HTTP ${response.status}: ${await response.text()}`);
+    }
+    const result = await response.json() as {
+      detections?: ObjectDetection[];
+    };
+    const matched = (result.detections ?? []).filter(
+      (item) => item.class === frame.objectType
+    );
+    detections.set(frame.deviceId, {
+      status: matched.length > 0 ? "paused" : "healthy",
+      objectType: frame.objectType,
+      intervalMs: 1000,
+      checkedAt: new Date().toISOString(),
+      inferenceMs: Date.now() - started,
+      objectPresent: matched.length > 0,
+      count: matched.length,
+      detections: matched,
+      frame: matched.length > 0 ? {
+        success: true,
+        capturedAt: frame.capturedAt,
+        backend: frame.backend,
+        mimeType: frame.mimeType,
+        width: frame.width,
+        height: frame.height,
+        sizeBytes: frame.sizeBytes,
+        imageBase64: frame.imageBase64
+      } : undefined
+    });
+    console.log(
+      `[object-detection] ${frame.deviceId}: ${matched.length} ${frame.objectType}(s) ` +
+      `in ${Date.now() - started}ms`
+    );
+    return matched.length > 0;
+  } catch (error) {
+    detections.set(frame.deviceId, {
+      status: "error",
+      objectType: frame.objectType,
+      intervalMs: 1000,
+      checkedAt: new Date().toISOString(),
+      inferenceMs: Date.now() - started,
+      objectPresent: false,
+      count: 0,
+      detections: [],
+      error: error instanceof Error ? error.message : "Object detection failed"
+    });
+    throw error;
+  }
+}
+
 io.on("connection", (socket) => {
   void cipher.encrypt(messageContexts.deviceSnapshot, devices.all())
     .then((message) => socket.emit("devices:snapshot", message))
@@ -143,6 +241,40 @@ io.on("connection", (socket) => {
     console.log(`[health] ${health.deviceId} received at ${receivedAt}`);
   });
 
+  socket.on("device:detection-frame", async (message, acknowledge) => {
+    const receivedAt = new Date().toISOString();
+    const reply = async (result: DetectionFrameAcknowledgement) => {
+      if (typeof acknowledge === "function") {
+        acknowledge(
+          await cipher.encrypt(messageContexts.detectionFrameAcknowledgement, result)
+        );
+      }
+    };
+    let frame: DetectionFrame;
+    try {
+      frame = await cipher.decrypt<DetectionFrame>(
+        messageContexts.detectionFrame,
+        message
+      );
+      if (devices.socketIdFor(frame.deviceId) !== socket.id) {
+        throw new Error("Frame device does not match the connected agent");
+      }
+      const shouldPause = await detectFrame(frame);
+      await reply({ success: true, receivedAt, pause: shouldPause });
+    } catch (error) {
+      console.error(
+        `[object-detection] frame rejected: ${
+          error instanceof Error ? error.message : "unknown error"
+        }`
+      );
+      await reply({
+        success: false,
+        receivedAt,
+        error: error instanceof Error ? error.message : "Detection frame rejected"
+      });
+    }
+  });
+
   socket.on("device:command", async (message, acknowledge) => {
     const reply = async (result: DeviceCommandResult) => {
       if (typeof acknowledge === "function") {
@@ -167,6 +299,10 @@ io.on("connection", (socket) => {
     }
     if (!isCommandRequest(request)) {
       await reply(commandError({}, "Invalid command request"));
+      return;
+    }
+    if (request.command === "object-detection.latest") {
+      await reply(detectionCommandResult(request));
       return;
     }
 
@@ -200,6 +336,16 @@ io.on("connection", (socket) => {
             messageContexts.agentCommandResult,
             message
           );
+          if (request.command === "object-detection.resume" && result.success) {
+            detections.set(request.deviceId, {
+              status: "starting",
+              objectType: detections.get(request.deviceId)?.objectType ?? "car",
+              intervalMs: detections.get(request.deviceId)?.intervalMs ?? 1000,
+              objectPresent: false,
+              count: 0,
+              detections: []
+            });
+          }
           await reply(result);
         } catch {
           await reply(commandError(request, "Encrypted device response rejected"));

@@ -7,6 +7,7 @@ import type {
 import { config } from "./config.js";
 import { cameraHealth, captureCameraPhoto } from "./camera.js";
 import { tryWithFlightControllerSerial } from "./flight-controller-lock.js";
+import { resumeDetectionFrames } from "./detection-control.js";
 
 type CommandDefinition = {
   executable: string;
@@ -57,6 +58,18 @@ export async function executeCommand(
   const definition = commands[request.command];
 
   try {
+    if (request.command === "object-detection.resume") {
+      resumeDetectionFrames();
+      return {
+        ...request,
+        deviceId,
+        success: true,
+        output: "Object detection monitoring resumed",
+        startedAt,
+        completedAt: new Date().toISOString()
+      };
+    }
+
     if (request.command === "camera.health") {
       return {
         ...request,

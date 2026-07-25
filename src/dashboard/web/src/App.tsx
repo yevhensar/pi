@@ -6,7 +6,8 @@ import type {
   DeviceCommandResult,
   DeviceState as SharedDeviceState,
   EncryptedEnvelope,
-  MessageCipher
+  MessageCipher,
+  ObjectDetectionHealth
 } from "@pi-health/shared";
 import { createMessageCipher, messageContexts } from "@pi-health/shared";
 import type { DeviceState, DeviceStatus } from "./types";
@@ -571,9 +572,18 @@ function CameraPanel({
   const [liveView, setLiveView] = useState(false);
   const [previewFrame, setPreviewFrame] = useState<CameraCapture | null>(null);
   const [previewError, setPreviewError] = useState("");
+  const [detection, setDetection] = useState<ObjectDetectionHealth | null>(
+    device.health.objectDetection ?? null
+  );
+  const [resumingDetection, setResumingDetection] = useState(false);
 
   async function sendCameraCommand(
-    command: "camera.health" | "camera.capture" | "camera.preview",
+    command:
+      | "camera.health"
+      | "camera.capture"
+      | "camera.preview"
+      | "object-detection.latest"
+      | "object-detection.resume",
     timeout: number
   ): Promise<DeviceCommandResult> {
     const requestId = crypto.randomUUID();
@@ -706,6 +716,34 @@ function CameraPanel({
     };
   }, [cipher, device.health.deviceId, health?.available, liveView, online]);
 
+  useEffect(() => {
+    let stopped = false;
+    let timer: number | undefined;
+
+    async function updateDetection() {
+      if (stopped || !online || document.hidden) return;
+      try {
+        const result = await sendCameraCommand("object-detection.latest", 5_000);
+        if (!result.success) throw new Error(result.error ?? "Detector status failed");
+        const next = JSON.parse(result.output) as ObjectDetectionHealth;
+        if (!next.status || !Array.isArray(next.detections)) {
+          throw new Error("Pi returned invalid detector status");
+        }
+        setDetection(next);
+      } catch {
+        // Retain the last detector result through transient polling failures.
+      } finally {
+        if (!stopped) timer = window.setTimeout(updateDetection, 1_000);
+      }
+    }
+
+    if (online) void updateDetection();
+    return () => {
+      stopped = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [cipher, device.health.deviceId, online]);
+
   async function takePicture() {
     if (capturing || liveView || !health?.available) return;
     setCapturing(true);
@@ -729,12 +767,39 @@ function CameraPanel({
     }
   }
 
+  async function proceedMonitoring() {
+    if (resumingDetection) return;
+    setResumingDetection(true);
+    try {
+      const result = await sendCameraCommand("object-detection.resume", 8_000);
+      if (!result.success) throw new Error(result.error ?? "Could not resume monitoring");
+      setDetection((current) => current ? {
+        ...current,
+        status: "starting",
+        objectPresent: false,
+        count: 0,
+        detections: [],
+        frame: undefined,
+        error: undefined
+      } : current);
+    } catch (failure) {
+      setDetection((current) => current ? {
+        ...current,
+        error: failure instanceof Error ? failure.message : "Could not resume monitoring"
+      } : current);
+    } finally {
+      setResumingDetection(false);
+    }
+  }
+
   const status = !online
     ? "offline"
     : healthError
     ? "error"
     : health?.status ?? (checking ? "checking" : "unknown");
-  const displayedCapture = liveView ? previewFrame ?? capture : capture ?? previewFrame;
+  const detectionFrame = detection?.status === "paused" ? detection.frame : undefined;
+  const displayedCapture =
+    detectionFrame ?? (liveView ? previewFrame ?? capture : capture ?? previewFrame);
 
   return (
     <section className="detail-panel camera-panel">
@@ -801,18 +866,69 @@ function CameraPanel({
           {online && health?.status === "missing" && (
             <p className="camera-help">{health.details ?? "No CSI camera was reported."}</p>
           )}
+          <div className={`detector-status detector-${detection?.status ?? "starting"}`}>
+            <div>
+              <span>On-device detector</span>
+              <strong>
+                {detection?.status === "disabled"
+                  ? "Disabled"
+                  : detection?.objectPresent
+                  ? `${detection.count} car${detection.count === 1 ? "" : "s"} detected`
+                  : detection?.status === "healthy"
+                  ? "No cars detected"
+                  : detection?.status ?? "Starting"}
+              </strong>
+            </div>
+            <small>
+              {detection?.inferenceMs !== undefined
+                ? `${detection.inferenceMs.toLocaleString()} ms inference`
+                : `Target interval ${detection?.intervalMs ?? 1000} ms`}
+            </small>
+            {detection?.error && <p>{detection.error}</p>}
+            {detection?.status === "paused" && (
+              <button
+                className="proceed-monitoring"
+                disabled={resumingDetection}
+                onClick={() => void proceedMonitoring()}
+              >
+                {resumingDetection ? "Resuming…" : "Proceed monitoring"}
+              </button>
+            )}
+          </div>
         </div>
 
         <div className={`camera-preview ${displayedCapture ? "has-capture" : ""}`}>
           {displayedCapture ? (
             <>
-              <img
-                alt={`${liveView ? "Live preview" : "Captured"} by ${device.health.deviceId} at ${shortTime(displayedCapture.capturedAt)}`}
-                src={`data:${displayedCapture.mimeType};base64,${displayedCapture.imageBase64}`}
-              />
+              <div className="camera-image-stage">
+                <img
+                  alt={`${detectionFrame ? "Car detection" : liveView ? "Live preview" : "Captured"} by ${device.health.deviceId} at ${shortTime(displayedCapture.capturedAt)}`}
+                  src={`data:${displayedCapture.mimeType};base64,${displayedCapture.imageBase64}`}
+                />
+                {detectionFrame && detection!.detections.map((item, index) => (
+                  <div
+                    className="detection-box"
+                    key={`${item.box.x1}-${item.box.y1}-${index}`}
+                    style={{
+                      left: `${(item.box.x1 / detectionFrame.width) * 100}%`,
+                      top: `${(item.box.y1 / detectionFrame.height) * 100}%`,
+                      width: `${((item.box.x2 - item.box.x1) / detectionFrame.width) * 100}%`,
+                      height: `${((item.box.y2 - item.box.y1) / detectionFrame.height) * 100}%`
+                    }}
+                  >
+                    <span>{item.class} {(item.confidence * 100).toFixed(0)}%</span>
+                  </div>
+                ))}
+              </div>
               <div className="capture-meta">
                 <div>
-                  <strong>{liveView ? "Live interval view" : shortTime(displayedCapture.capturedAt)}</strong>
+                  <strong>
+                    {detectionFrame
+                      ? "Car detected · monitoring paused"
+                      : liveView
+                      ? "Live interval view"
+                      : shortTime(displayedCapture.capturedAt)}
+                  </strong>
                   <span>
                     {displayedCapture.width} × {displayedCapture.height} · {bytes(displayedCapture.sizeBytes)}
                     {liveView ? ` · ${shortTime(displayedCapture.capturedAt)}` : ""}

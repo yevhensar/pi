@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from contextlib import asynccontextmanager
 from io import BytesIO
 from pathlib import Path
@@ -32,6 +33,8 @@ async def lifespan(_: FastAPI):
         device=os.getenv("DEVICE", "cpu"),
         confidence=float(os.getenv("CONFIDENCE", "0.25")),
         class_names=class_names,
+        slice_size=int(os.getenv("SLICE_SIZE", "512")),
+        overlap=float(os.getenv("SLICE_OVERLAP", "0.2")),
     )
     yield
     detector = None
@@ -81,7 +84,9 @@ async def detect_objects(file: UploadFile = File(...)) -> dict:
     with NamedTemporaryFile(suffix=suffix) as temporary:
         temporary.write(contents)
         temporary.flush()
+        started = time.perf_counter()
         detections = detector.predict(temporary.name)
+        inference_ms = round((time.perf_counter() - started) * 1000)
 
     count = len(detections)
     return {
@@ -89,6 +94,7 @@ async def detect_objects(file: UploadFile = File(...)) -> dict:
         # Deprecated compatibility field for the original car-detector client.
         "car_present": count > 0,
         "count": count,
+        "inference_ms": inference_ms,
         "detections": [detection.to_dict() for detection in detections],
     }
 

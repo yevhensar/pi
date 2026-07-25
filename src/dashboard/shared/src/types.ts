@@ -25,6 +25,37 @@ export type CameraCapture = {
   imageBase64: string;
 };
 
+export type ObjectDetection = {
+  class: string;
+  confidence: number;
+  box: { x1: number; y1: number; x2: number; y2: number };
+};
+
+export type ObjectDetectionHealth = {
+  status: "disabled" | "starting" | "healthy" | "paused" | "error";
+  objectType: string;
+  intervalMs: number;
+  checkedAt?: string;
+  inferenceMs?: number;
+  objectPresent: boolean;
+  count: number;
+  detections: ObjectDetection[];
+  frame?: CameraCapture;
+  error?: string;
+};
+
+export type DetectionFrame = CameraCapture & {
+  deviceId: string;
+  objectType: string;
+};
+
+export type DetectionFrameAcknowledgement = {
+  success: boolean;
+  receivedAt: string;
+  pause?: boolean;
+  error?: string;
+};
+
 export type FlightControllerHealth = {
   status: FlightControllerStatus;
   checkedAt: string;
@@ -78,6 +109,7 @@ export type HealthCheck = {
   appVersion: string;
   ipAddresses: string[];
   flightController?: FlightControllerHealth;
+  objectDetection?: ObjectDetectionHealth;
 };
 
 export type DeviceState = {
@@ -100,6 +132,8 @@ export const deviceCommandNames = [
   "camera.health",
   "camera.capture",
   "camera.preview",
+  "object-detection.latest",
+  "object-detection.resume",
   "flight-controller.attitude",
   "flight-controller.motor-test.start",
   "flight-controller.motor-test.stop"
@@ -126,6 +160,10 @@ export type DeviceCommandResult = DeviceCommandRequest & {
 
 export interface AgentToServerEvents {
   "device:health": (
+    message: EncryptedEnvelope,
+    acknowledge: (message: EncryptedEnvelope) => void
+  ) => void;
+  "device:detection-frame": (
     message: EncryptedEnvelope,
     acknowledge: (message: EncryptedEnvelope) => void
   ) => void;

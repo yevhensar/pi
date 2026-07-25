@@ -259,6 +259,7 @@ Supported command names are:
 - `camera.health`
 - `camera.capture`
 - `camera.preview`
+- `object-detection.latest`
 - `flight-controller.attitude`
 - `flight-controller.motor-test.start`
 - `flight-controller.motor-test.stop`
@@ -620,6 +621,7 @@ arguments:
 | `camera.health` | `rpicam-still --list-cameras` with legacy fallback |
 | `camera.capture` | Fixed, bounded `rpicam-still` or `libcamera-still` JPEG capture |
 | `camera.preview` | Fixed 640-by-360 JPEG for the interval preview |
+| `object-detection.latest` | Latest in-memory Ubuntu inference result |
 
 Commands use `execFile`, not a shell. Diagnostic text output is limited to
 64,000 characters, the child-process buffer is limited to 256 KiB, and commands
@@ -670,6 +672,40 @@ delay between frames. Preview images use a lower-bandwidth 640-by-360 JPEG
 profile. Previewing pauses when the tab is hidden or the Pi goes offline, and
 the full-resolution capture button is disabled while previewing to avoid
 overlapping access to the camera.
+
+### 13.1 Ubuntu-side car detection
+
+The Pi agent produces frames while the trained Faster R-CNN model and API run on
+the Ubuntu dashboard server. Ubuntu deployment installs `src/objectDetector`,
+the trained `last.ckpt` checkpoint, a CPU-only Torch runtime, and the
+localhost-only `pi-object-detector-api.service`.
+
+For each non-overlapping cycle:
+
+1. the Pi captures a fixed 1280-by-720 JPEG;
+2. the Pi encrypts and sends `device:detection-frame`;
+3. Ubuntu authenticates the device, validates the JPEG and size bounds, and
+   submits it to `http://127.0.0.1:8000/api/detect`;
+4. Ubuntu stores normalized car detections, the exact analyzed frame, and
+   inference timing in memory;
+5. Ubuntu returns an encrypted acknowledgement with `pause: true` when at
+   least one car is present;
+6. the Pi pauses detection capture until it receives
+   `object-detection.resume`; otherwise it waits only as long as necessary to
+   honor the configured target interval before capturing again.
+
+Because the Pi waits for acknowledgement, slow inference never creates a stale
+frame queue. `object-detection.latest` is handled directly by the dashboard
+server and returns its current in-memory state; the camera panel polls it once
+per second. When detection pauses, the panel retains the analyzed frame, draws
+the returned bounding boxes and confidence labels over it, and presents a
+`Proceed monitoring` button. The button sends `object-detection.resume`,
+clears the retained result, and allows the Pi to capture the next frame. If the
+object remains visible, that next positive result pauses capture again.
+
+The deployed API uses 800-pixel tiles to reduce 1280-by-720 inference to two
+overlapping tiles. The current model supports `car`; the object type remains
+configuration-driven for future checkpoints.
 
 ## 14. Configuration
 
@@ -743,6 +779,9 @@ Important production variables include:
 | `FLIGHT_CONTROLLER_MOTOR_TEST_ENABLED` | Explicit motor-test opt-in |
 | `FLIGHT_CONTROLLER_MOTOR_TEST_OUTPUT` | Bounded test output |
 | `FLIGHT_CONTROLLER_MOTOR_TEST_DURATION_MS` | Bounded test duration |
+| `OBJECT_DETECTION_ENABLED` | Enables Pi detection-frame production |
+| `OBJECT_DETECTION_INTERVAL_MS` | Target frame/result interval |
+| `OBJECT_DETECTION_OBJECT_TYPE` | Requested model class, currently `car` |
 
 ## 15. Token lifecycle
 

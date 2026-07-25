@@ -16,6 +16,9 @@ FLIGHT_CONTROLLER_BAUD=115200
 MOTOR_TEST_ENABLED=false
 MOTOR_TEST_OUTPUT=1050
 MOTOR_TEST_DURATION_MS=2000
+OBJECT_DETECTION_ENABLED=false
+OBJECT_DETECTION_INTERVAL_MS=1000
+OBJECT_DETECTION_OBJECT_TYPE=car
 MESSAGE_TOKEN=
 SSH_PORT=22
 SKIP_BUILD=false
@@ -73,6 +76,9 @@ if [[ -n $CONFIG_FILE ]]; then
   MOTOR_TEST_ENABLED=$(jq -r '.flight_controller.motor_test.enabled // false' "$CONFIG_FILE")
   MOTOR_TEST_OUTPUT=$(jq -r '.flight_controller.motor_test.output // 1050' "$CONFIG_FILE")
   MOTOR_TEST_DURATION_MS=$(jq -r '.flight_controller.motor_test.duration_ms // 2000' "$CONFIG_FILE")
+  OBJECT_DETECTION_ENABLED=$(jq -r '.object_detection.enabled // false' "$CONFIG_FILE")
+  OBJECT_DETECTION_INTERVAL_MS=$(jq -r '.object_detection.interval_ms // 1000' "$CONFIG_FILE")
+  OBJECT_DETECTION_OBJECT_TYPE=$(jq -r '.object_detection.object_type // "car"' "$CONFIG_FILE")
   MESSAGE_TOKEN=$(jq -r '.message_token // empty' "$CONFIG_FILE")
   SSH_PORT=$(jq -r '.ssh_port // 22' "$CONFIG_FILE")
   ROLE=$(jq -r '.role // "client"' "$CONFIG_FILE")
@@ -142,6 +148,13 @@ fi
 [[ $MOTOR_TEST_DURATION_MS =~ ^[0-9]+$ ]] &&
   (( MOTOR_TEST_DURATION_MS >= 500 && MOTOR_TEST_DURATION_MS <= 3000 )) ||
   { echo "Error: motor-test duration_ms must be between 500 and 3000." >&2; exit 1; }
+[[ $OBJECT_DETECTION_ENABLED == true || $OBJECT_DETECTION_ENABLED == false ]] ||
+  { echo "Error: object_detection.enabled must be true or false." >&2; exit 1; }
+[[ $OBJECT_DETECTION_INTERVAL_MS =~ ^[0-9]+$ ]] &&
+  (( OBJECT_DETECTION_INTERVAL_MS >= 250 && OBJECT_DETECTION_INTERVAL_MS <= 3600000 )) ||
+  { echo "Error: object_detection.interval_ms must be between 250 and 3600000." >&2; exit 1; }
+[[ $OBJECT_DETECTION_OBJECT_TYPE =~ ^[A-Za-z0-9._-]+$ ]] ||
+  { echo "Error: invalid object_detection.object_type." >&2; exit 1; }
 
 if [[ $CHECK_CONFIG == true ]]; then
   echo "Configuration is valid."
@@ -153,6 +166,7 @@ if [[ $CHECK_CONFIG == true ]]; then
   echo "Wi-Fi interface: ${WIFI_INTERFACE:-all interfaces}"
   echo "Flight controller: $([[ $FLIGHT_CONTROLLER_ENABLED == true ]] && echo "$FLIGHT_CONTROLLER_PROTOCOL on $FLIGHT_CONTROLLER_DEVICE at $FLIGHT_CONTROLLER_BAUD baud" || echo disabled)"
   echo "Motor test: $([[ $MOTOR_TEST_ENABLED == true ]] && echo "enabled ($MOTOR_TEST_OUTPUT for ${MOTOR_TEST_DURATION_MS}ms)" || echo disabled)"
+  echo "Object detection frames: $([[ $OBJECT_DETECTION_ENABLED == true ]] && echo "$OBJECT_DETECTION_OBJECT_TYPE every ${OBJECT_DETECTION_INTERVAL_MS}ms" || echo disabled)"
   echo "SSH authentication: $([[ -n $SSH_PASSWORD ]] && echo password || echo keys/interactive)"
   echo "sudo authentication: $([[ -n $SUDO_PASSWORD ]] && echo configured || echo passwordless/interactive)"
   exit 0
@@ -226,6 +240,7 @@ if [[ -n $WIFI_INTERFACE ]]; then
 fi
 INSTALL_COMMAND+=" --flight-controller-enabled '$FLIGHT_CONTROLLER_ENABLED' --flight-controller-device '$FLIGHT_CONTROLLER_DEVICE' --flight-controller-protocol '$FLIGHT_CONTROLLER_PROTOCOL' --flight-controller-baud '$FLIGHT_CONTROLLER_BAUD'"
 INSTALL_COMMAND+=" --motor-test-enabled '$MOTOR_TEST_ENABLED' --motor-test-output '$MOTOR_TEST_OUTPUT' --motor-test-duration-ms '$MOTOR_TEST_DURATION_MS'"
+INSTALL_COMMAND+=" --object-detection-enabled '$OBJECT_DETECTION_ENABLED' --object-detection-interval-ms '$OBJECT_DETECTION_INTERVAL_MS' --object-detection-object-type '$OBJECT_DETECTION_OBJECT_TYPE'"
 
 if [[ -n $SUDO_PASSWORD ]]; then
   printf '%s\n' "$SUDO_PASSWORD" | "${SSH_COMMAND[@]}" -T "$REMOTE_HOST" "$INSTALL_COMMAND"

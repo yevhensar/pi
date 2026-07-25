@@ -16,6 +16,11 @@
       "duration_ms": 2000
     }
   },
+  "object_detection": {
+    "enabled": false,
+    "interval_ms": 1000,
+    "object_type": "car"
+  },
   "clients": [
     {
       "host": "192.168.1.60",

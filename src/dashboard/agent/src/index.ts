@@ -3,6 +3,7 @@ import type {
   ClientToServerEvents,
   DeviceCommand,
   DeviceCommandResult,
+  DetectionFrameAcknowledgement,
   EncryptedEnvelope,
   HealthAcknowledgement,
   ServerToSocketEvents
@@ -12,6 +13,11 @@ import { config } from "./config.js";
 import { executeCommand } from "./commands.js";
 import { collectFlightControllerHealth } from "./flight-controller.js";
 import { collectHealth } from "./health.js";
+import { captureCameraPhoto } from "./camera.js";
+import {
+  detectionFramesPaused,
+  pauseDetectionFrames
+} from "./detection-control.js";
 
 const APP_VERSION = "1.0.0";
 const cipher = await createMessageCipher(config.messageToken);
@@ -25,6 +31,8 @@ const socket: Socket<ServerToSocketEvents, ClientToServerEvents> = io(config.ser
 });
 
 let interval: NodeJS.Timeout | undefined;
+let detectionTimer: NodeJS.Timeout | undefined;
+let detectionStopped = true;
 
 let transmissionInProgress = false;
 
@@ -73,17 +81,75 @@ async function transmit() {
   );
 }
 
+async function transmitDetectionFrame() {
+  if (
+    detectionStopped ||
+    !config.objectDetectionEnabled ||
+    !socket.connected
+  ) return;
+  if (detectionFramesPaused()) {
+    detectionTimer = setTimeout(() => void transmitDetectionFrame(), 500);
+    return;
+  }
+  const started = Date.now();
+  try {
+    const capture = await captureCameraPhoto("detection");
+    const encryptedFrame = await cipher.encrypt(messageContexts.detectionFrame, {
+      ...capture,
+      deviceId: config.deviceId,
+      objectType: config.objectDetectionObjectType
+    });
+    await new Promise<void>((resolve, reject) => {
+      socket.timeout(30_000).emit(
+        "device:detection-frame",
+        encryptedFrame,
+        async (error: Error | null, message?: EncryptedEnvelope) => {
+          if (error || !message) {
+            reject(error ?? new Error("Detection server did not acknowledge the frame"));
+            return;
+          }
+          try {
+            const result = await cipher.decrypt<DetectionFrameAcknowledgement>(
+              messageContexts.detectionFrameAcknowledgement,
+              message
+            );
+            if (result.pause) pauseDetectionFrames();
+            result.success ? resolve() : reject(new Error(result.error ?? "Detection failed"));
+          } catch (failure) {
+            reject(failure);
+          }
+        }
+      );
+    });
+  } catch (error) {
+    console.error(
+      `[object-detection] ${error instanceof Error ? error.message : "frame failed"}`
+    );
+  } finally {
+    if (!detectionStopped) {
+      const delay = Math.max(0, config.objectDetectionIntervalMs - (Date.now() - started));
+      detectionTimer = setTimeout(() => void transmitDetectionFrame(), delay);
+    }
+  }
+}
+
 socket.on("connect", () => {
   console.log(`[socket] connected to ${config.serverUrl} as ${socket.id}`);
   if (interval) clearInterval(interval);
   void transmit();
   interval = setInterval(transmit, config.healthIntervalMs);
+  detectionStopped = false;
+  if (detectionTimer) clearTimeout(detectionTimer);
+  if (config.objectDetectionEnabled) void transmitDetectionFrame();
 });
 
 socket.on("disconnect", (reason) => {
   console.warn(`[socket] disconnected: ${reason}`);
   if (interval) clearInterval(interval);
   interval = undefined;
+  detectionStopped = true;
+  if (detectionTimer) clearTimeout(detectionTimer);
+  detectionTimer = undefined;
 });
 
 socket.on("connect_error", (error) => {
@@ -110,6 +176,8 @@ socket.on("agent:command", async (command, acknowledge) => {
 function shutdown(signal: string) {
   console.log(`[agent] ${signal} received; shutting down`);
   if (interval) clearInterval(interval);
+  detectionStopped = true;
+  if (detectionTimer) clearTimeout(detectionTimer);
   socket.close();
   process.exit(0);
 }

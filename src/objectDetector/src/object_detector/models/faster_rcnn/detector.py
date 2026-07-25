@@ -49,7 +49,7 @@ class FasterRCNNDetector(BaseDetector):
         self.overlap = overlap
         self.class_names = class_names
         module = FasterRCNNModule.load_from_checkpoint(
-            str(model_path), map_location=self.device, pretrained=True
+            str(model_path), map_location=self.device, pretrained=False
         )
         self.model = module.detector.to(self.device).eval()
 

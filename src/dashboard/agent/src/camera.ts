@@ -12,6 +12,21 @@ const PREVIEW_HEIGHT = 360;
 const MAX_CAPTURE_BYTES = 4 * 1024 * 1024;
 
 type CameraBackend = (typeof CAMERA_BACKENDS)[number];
+let cameraQueue: Promise<void> = Promise.resolve();
+
+async function withCamera<T>(operation: () => Promise<T>): Promise<T> {
+  const previous = cameraQueue;
+  let release = () => {};
+  cameraQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+}
 
 type ProcessResult = {
   stdout: string;
@@ -90,7 +105,7 @@ async function inspectBackend(backend: CameraBackend): Promise<CameraHealth | nu
   }
 }
 
-export async function cameraHealth(): Promise<CameraHealth> {
+async function cameraHealthUnlocked(): Promise<CameraHealth> {
   let missing: CameraHealth | undefined;
   for (const backend of CAMERA_BACKENDS) {
     const health = await inspectBackend(backend);
@@ -106,10 +121,15 @@ export async function cameraHealth(): Promise<CameraHealth> {
   };
 }
 
+export function cameraHealth(): Promise<CameraHealth> {
+  return withCamera(cameraHealthUnlocked);
+}
+
 export async function captureCameraPhoto(
-  profile: "capture" | "preview" = "capture"
+  profile: "capture" | "preview" | "detection" = "capture"
 ): Promise<CameraCapture> {
-  const health = await cameraHealth();
+  return withCamera(async () => {
+  const health = await cameraHealthUnlocked();
   if (!health.available || !health.backend) {
     throw new Error(health.error ?? health.details ?? "Camera is unavailable");
   }
@@ -118,8 +138,8 @@ export async function captureCameraPhoto(
   const outputPath = join(captureDirectory, "capture.jpg");
   const width = profile === "preview" ? PREVIEW_WIDTH : CAPTURE_WIDTH;
   const height = profile === "preview" ? PREVIEW_HEIGHT : CAPTURE_HEIGHT;
-  const quality = profile === "preview" ? "65" : "85";
-  const warmupMs = profile === "preview" ? "300" : "1000";
+  const quality = profile === "preview" ? "65" : profile === "detection" ? "75" : "85";
+  const warmupMs = profile === "capture" ? "1000" : "300";
   try {
     await run(
       health.backend,
@@ -156,4 +176,5 @@ export async function captureCameraPhoto(
   } finally {
     await rm(captureDirectory, { recursive: true, force: true });
   }
+  });
 }

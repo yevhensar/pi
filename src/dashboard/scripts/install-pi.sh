@@ -15,6 +15,9 @@ FLIGHT_CONTROLLER_BAUD=115200
 MOTOR_TEST_ENABLED=false
 MOTOR_TEST_OUTPUT=1050
 MOTOR_TEST_DURATION_MS=2000
+OBJECT_DETECTION_ENABLED=false
+OBJECT_DETECTION_INTERVAL_MS=1000
+OBJECT_DETECTION_OBJECT_TYPE=car
 MESSAGE_TOKEN_FILE=
 MESSAGE_TOKEN=
 SOURCE_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -36,6 +39,9 @@ while [[ $# -gt 0 ]]; do
     --motor-test-enabled) MOTOR_TEST_ENABLED=${2:-}; shift 2 ;;
     --motor-test-output) MOTOR_TEST_OUTPUT=${2:-}; shift 2 ;;
     --motor-test-duration-ms) MOTOR_TEST_DURATION_MS=${2:-}; shift 2 ;;
+    --object-detection-enabled) OBJECT_DETECTION_ENABLED=${2:-}; shift 2 ;;
+    --object-detection-interval-ms) OBJECT_DETECTION_INTERVAL_MS=${2:-}; shift 2 ;;
+    --object-detection-object-type) OBJECT_DETECTION_OBJECT_TYPE=${2:-}; shift 2 ;;
     --message-token-file) MESSAGE_TOKEN_FILE=${2:-}; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Error: unknown argument: $1" >&2; usage; exit 1 ;;
@@ -70,6 +76,13 @@ MESSAGE_TOKEN=$(tr -d '\r\n' < "$MESSAGE_TOKEN_FILE")
 [[ $MOTOR_TEST_DURATION_MS =~ ^[0-9]+$ ]] &&
   (( MOTOR_TEST_DURATION_MS >= 500 && MOTOR_TEST_DURATION_MS <= 3000 )) ||
   { echo "Error: invalid motor-test duration." >&2; exit 1; }
+[[ $OBJECT_DETECTION_ENABLED == true || $OBJECT_DETECTION_ENABLED == false ]] ||
+  { echo "Error: invalid object-detection enabled value." >&2; exit 1; }
+[[ $OBJECT_DETECTION_INTERVAL_MS =~ ^[0-9]+$ ]] &&
+  (( OBJECT_DETECTION_INTERVAL_MS >= 250 && OBJECT_DETECTION_INTERVAL_MS <= 3600000 )) ||
+  { echo "Error: invalid object-detection interval." >&2; exit 1; }
+[[ $OBJECT_DETECTION_OBJECT_TYPE =~ ^[A-Za-z0-9._-]+$ ]] ||
+  { echo "Error: invalid object-detection object type." >&2; exit 1; }
 
 if [[ $EUID -ne 0 ]]; then
   sudo_arguments=("$0" --server-url "$SERVER_URL" --device-id "$DEVICE_ID" --source-dir "$SOURCE_DIR")
@@ -82,6 +95,9 @@ if [[ $EUID -ne 0 ]]; then
     --motor-test-enabled "$MOTOR_TEST_ENABLED"
     --motor-test-output "$MOTOR_TEST_OUTPUT"
     --motor-test-duration-ms "$MOTOR_TEST_DURATION_MS"
+    --object-detection-enabled "$OBJECT_DETECTION_ENABLED"
+    --object-detection-interval-ms "$OBJECT_DETECTION_INTERVAL_MS"
+    --object-detection-object-type "$OBJECT_DETECTION_OBJECT_TYPE"
     --message-token-file "$MESSAGE_TOKEN_FILE"
   )
   exec sudo -- "${sudo_arguments[@]}"
@@ -132,14 +148,16 @@ find "$APP_DIR" -mindepth 1 -maxdepth 1 ! -name venv -exec rm -rf -- {} +
 cp -a "$SOURCE_DIR/agent/dist" "$APP_DIR/dist"
 cp -a "$SOURCE_DIR/agent/python" "$APP_DIR/python"
 cp "$SOURCE_DIR/agent/package.json" "$APP_DIR/package.json"
-
 if [[ $FLIGHT_CONTROLLER_ENABLED == true ]]; then
-  echo "Installing flight-controller telemetry runtime..."
   if [[ ! -x $APP_DIR/venv/bin/python ]]; then
     apt-get update
     apt-get install -y python3 python3-venv
     python3 -m venv "$APP_DIR/venv"
   fi
+fi
+
+if [[ $FLIGHT_CONTROLLER_ENABLED == true ]]; then
+  echo "Installing flight-controller telemetry runtime..."
   if ! "$APP_DIR/venv/bin/python" -c 'import pymavlink' >/dev/null 2>&1; then
     "$APP_DIR/venv/bin/pip" install --no-cache-dir pymavlink pyserial
   elif ! "$APP_DIR/venv/bin/python" -c 'import serial' >/dev/null 2>&1; then
@@ -147,6 +165,12 @@ if [[ $FLIGHT_CONTROLLER_ENABLED == true ]]; then
   fi
   usermod -a -G dialout "$SERVICE_USER"
 fi
+
+if [[ -x $APP_DIR/venv/bin/pip ]]; then
+  "$APP_DIR/venv/bin/pip" uninstall -y \
+    aerial-object-detector torch torchvision >/dev/null 2>&1 || true
+fi
+
 
 for camera_group in video render; do
   if getent group "$camera_group" >/dev/null; then
@@ -185,6 +209,9 @@ install -d -o root -g "$SERVICE_USER" -m 0750 "$ENV_DIR"
   printf 'FLIGHT_CONTROLLER_MOTOR_TEST_ENABLED=%s\n' "$MOTOR_TEST_ENABLED"
   printf 'FLIGHT_CONTROLLER_MOTOR_TEST_OUTPUT=%s\n' "$MOTOR_TEST_OUTPUT"
   printf 'FLIGHT_CONTROLLER_MOTOR_TEST_DURATION_MS=%s\n' "$MOTOR_TEST_DURATION_MS"
+  printf 'OBJECT_DETECTION_ENABLED=%s\n' "$OBJECT_DETECTION_ENABLED"
+  printf 'OBJECT_DETECTION_INTERVAL_MS=%s\n' "$OBJECT_DETECTION_INTERVAL_MS"
+  printf 'OBJECT_DETECTION_OBJECT_TYPE=%s\n' "$OBJECT_DETECTION_OBJECT_TYPE"
 } > "$ENV_DIR/agent.env"
 chown root:"$SERVICE_USER" "$ENV_DIR/agent.env"
 chmod 0640 "$ENV_DIR/agent.env"

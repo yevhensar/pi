@@ -1,5 +1,8 @@
 import os from "node:os";
-import type { FlightControllerHealth, HealthCheck } from "@pi-health/shared";
+import type {
+  FlightControllerHealth,
+  HealthCheck
+} from "@pi-health/shared";
 
 function ipAddresses(interfaceName?: string): string[] {
   const interfaces = os.networkInterfaces();
