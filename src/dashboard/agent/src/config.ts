@@ -44,6 +44,17 @@ export const config = {
   ),
   objectDetectionObjectType:
     process.env.OBJECT_DETECTION_OBJECT_TYPE?.trim() || "car",
+  cameraStreamEnabled: process.env.CAMERA_STREAM_ENABLED !== "false",
+  cameraStreamPublishUrl: process.env.CAMERA_STREAM_PUBLISH_URL?.trim() || "",
+  cameraStreamExecutable: process.env.CAMERA_STREAM_EXECUTABLE?.trim() || "rpicam-vid",
+  cameraStreamFfmpeg: process.env.CAMERA_STREAM_FFMPEG?.trim() || "ffmpeg",
+  cameraStreamWidth: Number.parseInt(process.env.CAMERA_STREAM_WIDTH ?? "1280", 10),
+  cameraStreamHeight: Number.parseInt(process.env.CAMERA_STREAM_HEIGHT ?? "720", 10),
+  cameraStreamFps: Number.parseInt(process.env.CAMERA_STREAM_FPS ?? "20", 10),
+  cameraStreamBitrate: Number.parseInt(
+    process.env.CAMERA_STREAM_BITRATE ?? "2500000",
+    10
+  ),
   healthIntervalMs
 };
 
@@ -55,4 +66,20 @@ if (
   config.objectDetectionIntervalMs < 250
 ) {
   throw new Error("OBJECT_DETECTION_INTERVAL_MS must be at least 250");
+}
+if (config.cameraStreamEnabled && !/^rtsp:\/\/[^'"\s]+$/.test(config.cameraStreamPublishUrl)) {
+  throw new Error("CAMERA_STREAM_PUBLISH_URL must be a valid RTSP URL");
+}
+if (
+  !Number.isInteger(config.cameraStreamWidth) ||
+  !Number.isInteger(config.cameraStreamHeight) ||
+  config.cameraStreamWidth < 320 ||
+  config.cameraStreamHeight < 240 ||
+  !Number.isInteger(config.cameraStreamFps) ||
+  config.cameraStreamFps < 1 ||
+  config.cameraStreamFps > 60 ||
+  !Number.isInteger(config.cameraStreamBitrate) ||
+  config.cameraStreamBitrate < 100_000
+) {
+  throw new Error("Invalid camera stream dimensions, frame rate, or bitrate");
 }

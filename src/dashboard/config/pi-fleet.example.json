@@ -21,6 +21,13 @@
     "interval_ms": 1000,
     "object_type": "car"
   },
+  "camera_stream": {
+    "enabled": true,
+    "width": 1280,
+    "height": 720,
+    "fps": 20,
+    "bitrate": 2500000
+  },
   "clients": [
     {
       "host": "192.168.1.60",

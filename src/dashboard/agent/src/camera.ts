@@ -14,7 +14,7 @@ const MAX_CAPTURE_BYTES = 4 * 1024 * 1024;
 type CameraBackend = (typeof CAMERA_BACKENDS)[number];
 let cameraQueue: Promise<void> = Promise.resolve();
 
-async function withCamera<T>(operation: () => Promise<T>): Promise<T> {
+export async function withCameraAccess<T>(operation: () => Promise<T>): Promise<T> {
   const previous = cameraQueue;
   let release = () => {};
   cameraQueue = new Promise<void>((resolve) => {
@@ -122,13 +122,13 @@ async function cameraHealthUnlocked(): Promise<CameraHealth> {
 }
 
 export function cameraHealth(): Promise<CameraHealth> {
-  return withCamera(cameraHealthUnlocked);
+  return withCameraAccess(cameraHealthUnlocked);
 }
 
 export async function captureCameraPhoto(
   profile: "capture" | "preview" | "detection" = "capture"
 ): Promise<CameraCapture> {
-  return withCamera(async () => {
+  return withCameraAccess(async () => {
   const health = await cameraHealthUnlocked();
   if (!health.available || !health.backend) {
     throw new Error(health.error ?? health.details ?? "Camera is unavailable");

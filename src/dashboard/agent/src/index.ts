@@ -18,6 +18,7 @@ import {
   detectionFramesPaused,
   pauseDetectionFrames
 } from "./detection-control.js";
+import { cameraStreamState, stopCameraStream } from "./camera-stream.js";
 
 const APP_VERSION = "1.0.0";
 const cipher = await createMessageCipher(config.messageToken);
@@ -87,7 +88,12 @@ async function transmitDetectionFrame() {
     !config.objectDetectionEnabled ||
     !socket.connected
   ) return;
-  if (detectionFramesPaused()) {
+  const streamStatus = cameraStreamState().status;
+  if (
+    detectionFramesPaused() ||
+    streamStatus === "starting" ||
+    streamStatus === "live"
+  ) {
     detectionTimer = setTimeout(() => void transmitDetectionFrame(), 500);
     return;
   }
@@ -173,14 +179,15 @@ socket.on("agent:command", async (command, acknowledge) => {
   console.log(`[command] ${request.command} ${result.success ? "completed" : "failed"}`);
 });
 
-function shutdown(signal: string) {
+async function shutdown(signal: string) {
   console.log(`[agent] ${signal} received; shutting down`);
   if (interval) clearInterval(interval);
   detectionStopped = true;
   if (detectionTimer) clearTimeout(detectionTimer);
+  await stopCameraStream();
   socket.close();
   process.exit(0);
 }
 
-process.on("SIGINT", () => shutdown("SIGINT"));
-process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));

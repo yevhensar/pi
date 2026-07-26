@@ -258,7 +258,9 @@ Supported command names are:
 - `processes.top`
 - `camera.health`
 - `camera.capture`
-- `camera.preview`
+- `camera.stream.start`
+- `camera.stream.stop`
+- `camera.stream.status`
 - `object-detection.latest`
 - `flight-controller.attitude`
 - `flight-controller.motor-test.start`
@@ -620,7 +622,9 @@ arguments:
 | `processes.top` | `ps -eo ... --sort=-%cpu` |
 | `camera.health` | `rpicam-still --list-cameras` with legacy fallback |
 | `camera.capture` | Fixed, bounded `rpicam-still` or `libcamera-still` JPEG capture |
-| `camera.preview` | Fixed 640-by-360 JPEG for the interval preview |
+| `camera.stream.start` | Start the single Pi H.264 publisher |
+| `camera.stream.stop` | Stop the publisher and release the camera |
+| `camera.stream.status` | Return bounded stream state and video profile |
 | `object-detection.latest` | Latest in-memory Ubuntu inference result |
 
 Commands use `execFile`, not a shell. Diagnostic text output is limited to
@@ -666,12 +670,25 @@ response, and removes the temporary directory in a `finally` block. The browser
 keeps the preview in tab memory and offers download and dismiss controls. The
 server does not persist captured images.
 
-When **Live interval view** is enabled, the browser requests an encrypted
-`camera.preview` frame after the previous request completes, with a two-second
-delay between frames. Preview images use a lower-bandwidth 640-by-360 JPEG
-profile. Previewing pauses when the tab is hidden or the Pi goes offline, and
-the full-resolution capture button is disabled while previewing to avoid
-overlapping access to the camera.
+When **Live WebRTC video** is enabled, the browser sends
+`camera.stream.start`. The Pi runs `rpicam-vid` with a 1280-by-720 baseline
+H.264 profile and pipes it to an FFmpeg RTSP publisher. Ubuntu MediaMTX accepts
+the device-specific stream on port 8554 and exposes WebRTC playback on port
+8889. The browser embeds that playback endpoint; video bytes never pass through
+Socket.IO. Clearing the checkbox or leaving the device page sends
+`camera.stream.stop`.
+
+One-shot capture remains an encrypted `camera.capture` command. If streaming is
+active, the agent stops the publisher, captures the JPEG after the camera is
+released, and restores streaming. Stream start and stop are idempotent and the
+agent owns both child processes so a failed publisher cannot leave a duplicate
+camera process.
+
+The Pi camera is single-owner. While WebRTC publishing is live, the agent
+suspends its separate still-image detector capture loop and retains the most
+recent detector result. Detection capture resumes when the stream stops. A
+future server-side sampler can instead extract detector frames from the RTSP
+stream without opening the camera twice.
 
 ### 13.1 Ubuntu-side car detection
 

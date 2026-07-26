@@ -5,6 +5,9 @@ APP_DIR=/opt/pi-health-monitor
 ENV_DIR=/etc/pi-health-monitor
 SERVICE_FILE=/etc/systemd/system/pi-health-monitor-server.service
 DETECTOR_SERVICE_FILE=/etc/systemd/system/pi-object-detector-api.service
+MEDIAMTX_SERVICE_FILE=/etc/systemd/system/pi-mediamtx.service
+MEDIAMTX_CONFIG_FILE=/etc/pi-health-monitor/mediamtx.yml
+MEDIAMTX_VERSION=1.18.2
 SERVICE_USER=pi-health-monitor
 SOURCE_PATH=$(pwd)
 SERVER_PORT=3000
@@ -50,6 +53,10 @@ command -v node >/dev/null || { echo "Error: Node.js 20 or newer is required." >
 command -v npm >/dev/null || { echo "Error: npm is required." >&2; exit 1; }
 node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 20 ? 0 : 1)' ||
   { echo "Error: Node.js 20 or newer is required." >&2; exit 1; }
+command -v curl >/dev/null || {
+  apt-get update
+  apt-get install -y ca-certificates curl
+}
 
 SOURCE_PATH=$(realpath "$SOURCE_PATH")
 STAGING_DIR=$(mktemp -d)
@@ -102,6 +109,27 @@ runuser -u "$SERVICE_USER" -- "$APP_DIR/detector-venv/bin/pip" install --no-cach
 runuser -u "$SERVICE_USER" -- "$APP_DIR/detector-venv/bin/pip" install --no-cache-dir \
   "$APP_DIR/object-detector[api]"
 
+echo "Installing MediaMTX WebRTC gateway..."
+case "$(dpkg --print-architecture)" in
+  amd64) MEDIAMTX_ARCH=amd64 ;;
+  arm64) MEDIAMTX_ARCH=arm64 ;;
+  armhf) MEDIAMTX_ARCH=armv7 ;;
+  *) echo "Error: unsupported MediaMTX architecture." >&2; exit 1 ;;
+esac
+MEDIAMTX_ARCHIVE="mediamtx_v${MEDIAMTX_VERSION}_linux_${MEDIAMTX_ARCH}.tar.gz"
+curl --fail --location --retry 3 \
+  "https://github.com/bluenviron/mediamtx/releases/download/v${MEDIAMTX_VERSION}/${MEDIAMTX_ARCHIVE}" \
+  --output "$STAGING_DIR/$MEDIAMTX_ARCHIVE"
+curl --fail --location --retry 3 \
+  "https://github.com/bluenviron/mediamtx/releases/download/v${MEDIAMTX_VERSION}/checksums.sha256" \
+  --output "$STAGING_DIR/checksums.sha256"
+(
+  cd "$STAGING_DIR"
+  grep "[ *]${MEDIAMTX_ARCHIVE}\$" checksums.sha256 | sha256sum --check
+)
+tar -xzf "$STAGING_DIR/$MEDIAMTX_ARCHIVE" -C "$STAGING_DIR" mediamtx
+install -o root -g root -m 0755 "$STAGING_DIR/mediamtx" /usr/local/bin/mediamtx
+
 install -d -o root -g "$SERVICE_USER" -m 0750 "$ENV_DIR"
 {
   printf 'PORT=%s\n' "$SERVER_PORT"
@@ -112,11 +140,34 @@ install -d -o root -g "$SERVICE_USER" -m 0750 "$ENV_DIR"
 chown root:"$SERVICE_USER" "$ENV_DIR/server.env"
 chmod 0640 "$ENV_DIR/server.env"
 
+HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+cat > "$MEDIAMTX_CONFIG_FILE" <<EOF
+logLevel: info
+rtsp: true
+rtspAddress: :8554
+rtspTransports: [tcp]
+rtmp: false
+hls: false
+srt: false
+webrtc: true
+webrtcAddress: :8889
+webrtcAllowOrigins: ['*']
+webrtcLocalUDPAddress: :8189
+webrtcAdditionalHosts: [${HOST_IP:-127.0.0.1}]
+api: false
+metrics: false
+playback: false
+paths:
+  all_others:
+EOF
+chown root:"$SERVICE_USER" "$MEDIAMTX_CONFIG_FILE"
+chmod 0640 "$MEDIAMTX_CONFIG_FILE"
+
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=Pi Health Monitor server
-After=network-online.target pi-object-detector-api.service
-Wants=network-online.target pi-object-detector-api.service
+After=network-online.target pi-object-detector-api.service pi-mediamtx.service
+Wants=network-online.target pi-object-detector-api.service pi-mediamtx.service
 
 [Service]
 Type=simple
@@ -127,6 +178,28 @@ EnvironmentFile=$ENV_DIR/server.env
 ExecStart=$(command -v node) $APP_DIR/server/dist/index.js
 Restart=always
 RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat > "$MEDIAMTX_SERVICE_FILE" <<EOF
+[Unit]
+Description=Pi camera MediaMTX WebRTC gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$SERVICE_USER
+Group=$SERVICE_USER
+ExecStart=/usr/local/bin/mediamtx $MEDIAMTX_CONFIG_FILE
+Restart=always
+RestartSec=3
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
@@ -169,11 +242,13 @@ EOF
 systemctl daemon-reload
 systemctl enable --now pi-object-detector-api.service
 systemctl restart pi-object-detector-api.service
+systemctl enable --now pi-mediamtx.service
+systemctl restart pi-mediamtx.service
 systemctl enable --now pi-health-monitor-server.service
 systemctl restart pi-health-monitor-server.service
 
-HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 echo
 systemctl --no-pager --full status pi-health-monitor-server.service || true
 echo
 echo "Dashboard: http://${HOST_IP:-localhost}:$SERVER_PORT"
+echo "WebRTC gateway: http://${HOST_IP:-localhost}:8889"

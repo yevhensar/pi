@@ -18,6 +18,12 @@ MOTOR_TEST_DURATION_MS=2000
 OBJECT_DETECTION_ENABLED=false
 OBJECT_DETECTION_INTERVAL_MS=1000
 OBJECT_DETECTION_OBJECT_TYPE=car
+CAMERA_STREAM_ENABLED=true
+CAMERA_STREAM_PUBLISH_URL=
+CAMERA_STREAM_WIDTH=1280
+CAMERA_STREAM_HEIGHT=720
+CAMERA_STREAM_FPS=20
+CAMERA_STREAM_BITRATE=2500000
 MESSAGE_TOKEN_FILE=
 MESSAGE_TOKEN=
 SOURCE_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -42,6 +48,12 @@ while [[ $# -gt 0 ]]; do
     --object-detection-enabled) OBJECT_DETECTION_ENABLED=${2:-}; shift 2 ;;
     --object-detection-interval-ms) OBJECT_DETECTION_INTERVAL_MS=${2:-}; shift 2 ;;
     --object-detection-object-type) OBJECT_DETECTION_OBJECT_TYPE=${2:-}; shift 2 ;;
+    --camera-stream-enabled) CAMERA_STREAM_ENABLED=${2:-}; shift 2 ;;
+    --camera-stream-publish-url) CAMERA_STREAM_PUBLISH_URL=${2:-}; shift 2 ;;
+    --camera-stream-width) CAMERA_STREAM_WIDTH=${2:-}; shift 2 ;;
+    --camera-stream-height) CAMERA_STREAM_HEIGHT=${2:-}; shift 2 ;;
+    --camera-stream-fps) CAMERA_STREAM_FPS=${2:-}; shift 2 ;;
+    --camera-stream-bitrate) CAMERA_STREAM_BITRATE=${2:-}; shift 2 ;;
     --message-token-file) MESSAGE_TOKEN_FILE=${2:-}; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Error: unknown argument: $1" >&2; usage; exit 1 ;;
@@ -83,6 +95,15 @@ MESSAGE_TOKEN=$(tr -d '\r\n' < "$MESSAGE_TOKEN_FILE")
   { echo "Error: invalid object-detection interval." >&2; exit 1; }
 [[ $OBJECT_DETECTION_OBJECT_TYPE =~ ^[A-Za-z0-9._-]+$ ]] ||
   { echo "Error: invalid object-detection object type." >&2; exit 1; }
+[[ $CAMERA_STREAM_ENABLED == true || $CAMERA_STREAM_ENABLED == false ]] ||
+  { echo "Error: invalid camera-stream enabled value." >&2; exit 1; }
+[[ $CAMERA_STREAM_ENABLED == false || $CAMERA_STREAM_PUBLISH_URL =~ ^rtsp://[^[:space:]\'\"]+$ ]] ||
+  { echo "Error: invalid camera-stream publish URL." >&2; exit 1; }
+[[ $CAMERA_STREAM_WIDTH =~ ^[0-9]+$ ]] && (( CAMERA_STREAM_WIDTH >= 320 )) &&
+[[ $CAMERA_STREAM_HEIGHT =~ ^[0-9]+$ ]] && (( CAMERA_STREAM_HEIGHT >= 240 )) &&
+[[ $CAMERA_STREAM_FPS =~ ^[0-9]+$ ]] && (( CAMERA_STREAM_FPS >= 1 && CAMERA_STREAM_FPS <= 60 )) &&
+[[ $CAMERA_STREAM_BITRATE =~ ^[0-9]+$ ]] && (( CAMERA_STREAM_BITRATE >= 100000 )) ||
+  { echo "Error: invalid camera-stream video settings." >&2; exit 1; }
 
 if [[ $EUID -ne 0 ]]; then
   sudo_arguments=("$0" --server-url "$SERVER_URL" --device-id "$DEVICE_ID" --source-dir "$SOURCE_DIR")
@@ -98,6 +119,12 @@ if [[ $EUID -ne 0 ]]; then
     --object-detection-enabled "$OBJECT_DETECTION_ENABLED"
     --object-detection-interval-ms "$OBJECT_DETECTION_INTERVAL_MS"
     --object-detection-object-type "$OBJECT_DETECTION_OBJECT_TYPE"
+    --camera-stream-enabled "$CAMERA_STREAM_ENABLED"
+    --camera-stream-publish-url "$CAMERA_STREAM_PUBLISH_URL"
+    --camera-stream-width "$CAMERA_STREAM_WIDTH"
+    --camera-stream-height "$CAMERA_STREAM_HEIGHT"
+    --camera-stream-fps "$CAMERA_STREAM_FPS"
+    --camera-stream-bitrate "$CAMERA_STREAM_BITRATE"
     --message-token-file "$MESSAGE_TOKEN_FILE"
   )
   exec sudo -- "${sudo_arguments[@]}"
@@ -109,6 +136,13 @@ node_is_supported() {
     node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 20 ? 0 : 1)' \
       >/dev/null 2>&1
 }
+
+if [[ $CAMERA_STREAM_ENABLED == true ]]; then
+  apt-get update
+  apt-get install -y ffmpeg
+  command -v rpicam-vid >/dev/null ||
+    { echo "Error: rpicam-vid is required for camera streaming." >&2; exit 1; }
+fi
 
 install_nodejs() {
   command -v apt-get >/dev/null ||
@@ -212,6 +246,12 @@ install -d -o root -g "$SERVICE_USER" -m 0750 "$ENV_DIR"
   printf 'OBJECT_DETECTION_ENABLED=%s\n' "$OBJECT_DETECTION_ENABLED"
   printf 'OBJECT_DETECTION_INTERVAL_MS=%s\n' "$OBJECT_DETECTION_INTERVAL_MS"
   printf 'OBJECT_DETECTION_OBJECT_TYPE=%s\n' "$OBJECT_DETECTION_OBJECT_TYPE"
+  printf 'CAMERA_STREAM_ENABLED=%s\n' "$CAMERA_STREAM_ENABLED"
+  printf 'CAMERA_STREAM_PUBLISH_URL=%s\n' "$CAMERA_STREAM_PUBLISH_URL"
+  printf 'CAMERA_STREAM_WIDTH=%s\n' "$CAMERA_STREAM_WIDTH"
+  printf 'CAMERA_STREAM_HEIGHT=%s\n' "$CAMERA_STREAM_HEIGHT"
+  printf 'CAMERA_STREAM_FPS=%s\n' "$CAMERA_STREAM_FPS"
+  printf 'CAMERA_STREAM_BITRATE=%s\n' "$CAMERA_STREAM_BITRATE"
 } > "$ENV_DIR/agent.env"
 chown root:"$SERVICE_USER" "$ENV_DIR/agent.env"
 chmod 0640 "$ENV_DIR/agent.env"

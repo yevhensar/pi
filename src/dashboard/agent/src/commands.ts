@@ -5,9 +5,15 @@ import type {
   DeviceCommandResult
 } from "@pi-health/shared";
 import { config } from "./config.js";
-import { cameraHealth, captureCameraPhoto } from "./camera.js";
+import { cameraHealth, captureCameraPhoto, withCameraAccess } from "./camera.js";
 import { tryWithFlightControllerSerial } from "./flight-controller-lock.js";
 import { resumeDetectionFrames } from "./detection-control.js";
+import {
+  cameraStreamState,
+  startCameraStream,
+  stopCameraStream,
+  withCameraStreamPaused
+} from "./camera-stream.js";
 
 type CommandDefinition = {
   executable: string;
@@ -86,18 +92,40 @@ export async function executeCommand(
         ...request,
         deviceId,
         success: true,
-        output: JSON.stringify(await captureCameraPhoto()),
+        output: JSON.stringify(await withCameraStreamPaused(() => captureCameraPhoto())),
         startedAt,
         completedAt: new Date().toISOString()
       };
     }
 
-    if (request.command === "camera.preview") {
+    if (request.command === "camera.stream.start") {
       return {
         ...request,
         deviceId,
         success: true,
-        output: JSON.stringify(await captureCameraPhoto("preview")),
+        output: JSON.stringify(await withCameraAccess(() => startCameraStream())),
+        startedAt,
+        completedAt: new Date().toISOString()
+      };
+    }
+
+    if (request.command === "camera.stream.stop") {
+      return {
+        ...request,
+        deviceId,
+        success: true,
+        output: JSON.stringify(await stopCameraStream()),
+        startedAt,
+        completedAt: new Date().toISOString()
+      };
+    }
+
+    if (request.command === "camera.stream.status") {
+      return {
+        ...request,
+        deviceId,
+        success: true,
+        output: JSON.stringify(cameraStreamState()),
         startedAt,
         completedAt: new Date().toISOString()
       };

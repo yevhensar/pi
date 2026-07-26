@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   CameraCapture,
   CameraHealth,
@@ -15,6 +15,15 @@ import { socket } from "./socket";
 
 const STALE_AFTER_MS = 90_000;
 const TOKEN_STORAGE_KEY = "pi-health-message-token";
+
+type CameraStreamState = {
+  status: "disabled" | "stopped" | "starting" | "live" | "error";
+  width: number;
+  height: number;
+  fps: number;
+  startedAt?: string;
+  error?: string;
+};
 
 function statusFor(device: DeviceState, now: number): DeviceStatus {
   if (!device.socketConnected) return "offline";
@@ -570,8 +579,10 @@ function CameraPanel({
   const [captureError, setCaptureError] = useState("");
   const [capture, setCapture] = useState<CameraCapture | null>(null);
   const [liveView, setLiveView] = useState(false);
-  const [previewFrame, setPreviewFrame] = useState<CameraCapture | null>(null);
-  const [previewError, setPreviewError] = useState("");
+  const liveViewRef = useRef(false);
+  const [stream, setStream] = useState<CameraStreamState | null>(null);
+  const [streamChanging, setStreamChanging] = useState(false);
+  const [streamError, setStreamError] = useState("");
   const [detection, setDetection] = useState<ObjectDetectionHealth | null>(
     device.health.objectDetection ?? null
   );
@@ -581,7 +592,9 @@ function CameraPanel({
     command:
       | "camera.health"
       | "camera.capture"
-      | "camera.preview"
+      | "camera.stream.start"
+      | "camera.stream.stop"
+      | "camera.stream.status"
       | "object-detection.latest"
       | "object-detection.resume",
     timeout: number
@@ -669,52 +682,20 @@ function CameraPanel({
   }, [cipher, device.health.deviceId, liveView, online]);
 
   useEffect(() => {
-    let stopped = false;
-    let timer: number | undefined;
-    let failures = 0;
+    liveViewRef.current = liveView;
+  }, [liveView]);
 
-    async function updatePreview() {
-      if (stopped || !liveView || !online || !health?.available || document.hidden) return;
-      try {
-        const result = await sendCameraCommand("camera.preview", 12_000);
-        if (!result.success) throw new Error(result.error ?? "Live preview failed");
-        const next = JSON.parse(result.output) as CameraCapture;
-        if (
-          next.mimeType !== "image/jpeg" ||
-          !next.imageBase64 ||
-          next.width !== 640 ||
-          next.height !== 360
-        ) {
-          throw new Error("Pi returned invalid preview data");
-        }
-        failures = 0;
-        setPreviewFrame(next);
-        setPreviewError("");
-      } catch (failure) {
-        failures += 1;
-        if (failures >= 3) {
-          setPreviewError(failure instanceof Error ? failure.message : "Live preview failed");
-        }
-      } finally {
-        if (!stopped && liveView) timer = window.setTimeout(updatePreview, 2_000);
-      }
-    }
-
-    function handleVisibility() {
-      if (document.hidden || stopped || !liveView) return;
-      if (timer !== undefined) window.clearTimeout(timer);
-      void updatePreview();
-    }
-
-    if (liveView && online && health?.available) void updatePreview();
-    if (!liveView) setPreviewError("");
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => {
-      stopped = true;
-      if (timer !== undefined) window.clearTimeout(timer);
-      document.removeEventListener("visibilitychange", handleVisibility);
-    };
-  }, [cipher, device.health.deviceId, health?.available, liveView, online]);
+  useEffect(() => () => {
+    if (!liveViewRef.current) return;
+    void (async () => {
+      const encryptedRequest = await cipher.encrypt(messageContexts.browserCommand, {
+        requestId: crypto.randomUUID(),
+        deviceId: device.health.deviceId,
+        command: "camera.stream.stop"
+      });
+      socket.timeout(5_000).emit("device:command", encryptedRequest, () => undefined);
+    })();
+  }, [cipher, device.health.deviceId]);
 
   useEffect(() => {
     let stopped = false;
@@ -745,7 +726,7 @@ function CameraPanel({
   }, [cipher, device.health.deviceId, online]);
 
   async function takePicture() {
-    if (capturing || liveView || !health?.available) return;
+    if (capturing || !health?.available) return;
     setCapturing(true);
     setCaptureError("");
     try {
@@ -764,6 +745,39 @@ function CameraPanel({
       setCaptureError(failure instanceof Error ? failure.message : "Picture capture failed");
     } finally {
       setCapturing(false);
+    }
+  }
+
+  async function changeLiveView(enabled: boolean) {
+    if (streamChanging) return;
+    setStreamChanging(true);
+    setStreamError("");
+    if (enabled) {
+      setLiveView(true);
+      setStream((current) => ({
+        status: "starting",
+        width: current?.width ?? 1280,
+        height: current?.height ?? 720,
+        fps: current?.fps ?? 20
+      }));
+    }
+    try {
+      const result = await sendCameraCommand(
+        enabled ? "camera.stream.start" : "camera.stream.stop",
+        12_000
+      );
+      if (!result.success) throw new Error(result.error ?? "Camera stream command failed");
+      const next = JSON.parse(result.output) as CameraStreamState;
+      if (!next.status || !Number.isFinite(next.width) || !Number.isFinite(next.height)) {
+        throw new Error("Pi returned invalid camera stream status");
+      }
+      setStream(next);
+      setLiveView(enabled && next.status === "live");
+    } catch (failure) {
+      setLiveView(false);
+      setStreamError(failure instanceof Error ? failure.message : "Camera stream failed");
+    } finally {
+      setStreamChanging(false);
     }
   }
 
@@ -798,8 +812,8 @@ function CameraPanel({
     ? "error"
     : health?.status ?? (checking ? "checking" : "unknown");
   const detectionFrame = detection?.status === "paused" ? detection.frame : undefined;
-  const displayedCapture =
-    detectionFrame ?? (liveView ? previewFrame ?? capture : capture ?? previewFrame);
+  const displayedCapture = detectionFrame ?? capture;
+  const streamUrl = `${window.location.protocol}//${window.location.hostname}:8889/${encodeURIComponent(device.health.deviceId)}-camera/?controls=false&muted=true&autoplay=true&playsInline=true`;
 
   return (
     <section className="detail-panel camera-panel">
@@ -839,7 +853,7 @@ function CameraPanel({
           </div>
           <button
             className="capture-button"
-            disabled={!online || !health?.available || capturing || liveView}
+            disabled={!online || !health?.available || capturing}
             onClick={() => void takePicture()}
           >
             <span aria-hidden="true">●</span>
@@ -849,17 +863,17 @@ function CameraPanel({
             <input
               checked={liveView}
               disabled={!online || !health?.available}
-              onChange={(event) => setLiveView(event.target.checked)}
+              onChange={(event) => void changeLiveView(event.target.checked)}
               type="checkbox"
             />
             <span>
-              <strong>Live interval view</strong>
-              <small>Refresh a 640 × 360 frame every 2 seconds</small>
+              <strong>{streamChanging ? "Changing stream…" : "Live WebRTC video"}</strong>
+              <small>Real-time 1280 × 720 H.264 from this Pi</small>
             </span>
           </label>
-          {(healthError || health?.error || captureError || previewError) && (
+          {(healthError || health?.error || captureError || streamError || stream?.error) && (
             <div className="camera-error-message">
-              {captureError || previewError || healthError || health?.error}
+              {captureError || streamError || stream?.error || healthError || health?.error}
             </div>
           )}
           {!online && <p className="camera-help">Camera checks pause while the Pi is offline.</p>}
@@ -897,12 +911,42 @@ function CameraPanel({
           </div>
         </div>
 
-        <div className={`camera-preview ${displayedCapture ? "has-capture" : ""}`}>
-          {displayedCapture ? (
+        <div className={`camera-preview ${displayedCapture || liveView ? "has-capture" : ""}`}>
+          {liveView ? (
+            <>
+              <div className="camera-video-stage">
+                <iframe
+                  allow="autoplay; fullscreen; picture-in-picture"
+                  src={streamUrl}
+                  title={`Live camera from ${device.health.deviceId}`}
+                />
+                {detection?.detections.map((item, index) => (
+                  <div
+                    className="detection-box"
+                    key={`${item.box.x1}-${item.box.y1}-${index}`}
+                    style={{
+                      left: `${(item.box.x1 / (detectionFrame?.width ?? 1280)) * 100}%`,
+                      top: `${(item.box.y1 / (detectionFrame?.height ?? 720)) * 100}%`,
+                      width: `${((item.box.x2 - item.box.x1) / (detectionFrame?.width ?? 1280)) * 100}%`,
+                      height: `${((item.box.y2 - item.box.y1) / (detectionFrame?.height ?? 720)) * 100}%`
+                    }}
+                  >
+                    <span>{item.class} {(item.confidence * 100).toFixed(0)}%</span>
+                  </div>
+                ))}
+              </div>
+              <div className="capture-meta">
+                <div>
+                  <strong>{detection?.status === "paused" ? "Car detected · monitoring paused" : "Live WebRTC video"}</strong>
+                  <span>{stream?.width ?? 1280} × {stream?.height ?? 720} · {stream?.fps ?? 20} fps</span>
+                </div>
+              </div>
+            </>
+          ) : displayedCapture ? (
             <>
               <div className="camera-image-stage">
                 <img
-                  alt={`${detectionFrame ? "Car detection" : liveView ? "Live preview" : "Captured"} by ${device.health.deviceId} at ${shortTime(displayedCapture.capturedAt)}`}
+                  alt={`${detectionFrame ? "Car detection" : "Captured"} by ${device.health.deviceId} at ${shortTime(displayedCapture.capturedAt)}`}
                   src={`data:${displayedCapture.mimeType};base64,${displayedCapture.imageBase64}`}
                 />
                 {detectionFrame && detection!.detections.map((item, index) => (
@@ -925,13 +969,10 @@ function CameraPanel({
                   <strong>
                     {detectionFrame
                       ? "Car detected · monitoring paused"
-                      : liveView
-                      ? "Live interval view"
                       : shortTime(displayedCapture.capturedAt)}
                   </strong>
                   <span>
                     {displayedCapture.width} × {displayedCapture.height} · {bytes(displayedCapture.sizeBytes)}
-                    {liveView ? ` · ${shortTime(displayedCapture.capturedAt)}` : ""}
                   </span>
                 </div>
                 <div>
@@ -944,7 +985,6 @@ function CameraPanel({
                   <button
                     onClick={() => {
                       setCapture(null);
-                      setPreviewFrame(null);
                     }}
                   >
                     Dismiss

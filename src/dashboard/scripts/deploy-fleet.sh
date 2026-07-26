@@ -98,6 +98,13 @@ for ((client_index = 0; client_index < CLIENT_COUNT; client_index++)); do
         interval_ms: 1000,
         object_type: "car"
       }),
+      camera_stream: ($client.camera_stream // $root.camera_stream // {
+        enabled: true,
+        width: 1280,
+        height: 720,
+        fps: 20,
+        bitrate: 2500000
+      }),
       server_url: ($client.server_url // $server_url)
     }
   ' "$CONFIG_FILE" > "$client_file"
