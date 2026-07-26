@@ -13,6 +13,8 @@ SOURCE_PATH=$(pwd)
 SERVER_PORT=3000
 MESSAGE_TOKEN_FILE=
 MESSAGE_TOKEN=
+MEDIA_KEY_FILE=
+MEDIA_CERT_FILE=
 
 usage() {
   echo "Usage: sudo $0 [--source DIRECTORY_OR_ARCHIVE] [--port PORT] --message-token-file FILE"
@@ -23,6 +25,8 @@ while [[ $# -gt 0 ]]; do
     --source) SOURCE_PATH=${2:-}; shift 2 ;;
     --port) SERVER_PORT=${2:-}; shift 2 ;;
     --message-token-file) MESSAGE_TOKEN_FILE=${2:-}; shift 2 ;;
+    --media-key-file) MEDIA_KEY_FILE=${2:-}; shift 2 ;;
+    --media-cert-file) MEDIA_CERT_FILE=${2:-}; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *)
       # Backward compatibility with the original positional source argument.
@@ -41,12 +45,16 @@ command -v jq >/dev/null || { echo "Error: jq is required." >&2; exit 1; }
 MESSAGE_TOKEN=$(jq -r '.token // empty' "$MESSAGE_TOKEN_FILE")
 [[ $MESSAGE_TOKEN =~ ^[A-Za-z0-9_-]{43}$ ]] ||
   { echo "Error: invalid message token." >&2; exit 1; }
+[[ -r $MEDIA_KEY_FILE && -r $MEDIA_CERT_FILE ]] ||
+  { echo "Error: readable MediaMTX key and certificate files are required." >&2; exit 1; }
 
 if [[ $EUID -ne 0 ]]; then
   exec sudo -- "$0" \
     --source "$SOURCE_PATH" \
     --port "$SERVER_PORT" \
-    --message-token-file "$MESSAGE_TOKEN_FILE"
+    --message-token-file "$MESSAGE_TOKEN_FILE" \
+    --media-key-file "$MEDIA_KEY_FILE" \
+    --media-cert-file "$MEDIA_CERT_FILE"
 fi
 
 command -v node >/dev/null || { echo "Error: Node.js 20 or newer is required." >&2; exit 1; }
@@ -56,6 +64,10 @@ node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 20 ? 0 : 1)
 command -v curl >/dev/null || {
   apt-get update
   apt-get install -y ca-certificates curl
+}
+command -v openssl >/dev/null || {
+  apt-get update
+  apt-get install -y openssl
 }
 
 SOURCE_PATH=$(realpath "$SOURCE_PATH")
@@ -141,11 +153,24 @@ chown root:"$SERVICE_USER" "$ENV_DIR/server.env"
 chmod 0640 "$ENV_DIR/server.env"
 
 HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+MEDIA_TLS_KEY="$ENV_DIR/media-server.key"
+MEDIA_TLS_CERT="$ENV_DIR/media-server.crt"
+install -o root -g "$SERVICE_USER" -m 0640 "$MEDIA_KEY_FILE" "$MEDIA_TLS_KEY"
+install -o root -g "$SERVICE_USER" -m 0644 "$MEDIA_CERT_FILE" "$MEDIA_TLS_CERT"
+chown root:"$SERVICE_USER" "$MEDIA_TLS_KEY" "$MEDIA_TLS_CERT"
+chmod 0640 "$MEDIA_TLS_KEY"
+chmod 0644 "$MEDIA_TLS_CERT"
 cat > "$MEDIAMTX_CONFIG_FILE" <<EOF
 logLevel: info
+authMethod: http
+authHTTPAddress: http://127.0.0.1:$SERVER_PORT/api/media/auth
+authHTTPExclude: []
 rtsp: true
-rtspAddress: :8554
 rtspTransports: [tcp]
+rtspEncryption: strict
+rtspsAddress: :8322
+rtspServerKey: $MEDIA_TLS_KEY
+rtspServerCert: $MEDIA_TLS_CERT
 rtmp: false
 hls: false
 srt: false
@@ -251,4 +276,4 @@ echo
 systemctl --no-pager --full status pi-health-monitor-server.service || true
 echo
 echo "Dashboard: http://${HOST_IP:-localhost}:$SERVER_PORT"
-echo "WebRTC gateway: http://${HOST_IP:-localhost}:8889"
+echo "Authenticated WebRTC gateway: http://${HOST_IP:-localhost}:8889"

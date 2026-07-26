@@ -26,6 +26,7 @@ CAMERA_STREAM_FPS=20
 CAMERA_STREAM_BITRATE=2500000
 MESSAGE_TOKEN_FILE=
 MESSAGE_TOKEN=
+MEDIA_CERT_FILE=
 SOURCE_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 usage() {
@@ -55,6 +56,7 @@ while [[ $# -gt 0 ]]; do
     --camera-stream-fps) CAMERA_STREAM_FPS=${2:-}; shift 2 ;;
     --camera-stream-bitrate) CAMERA_STREAM_BITRATE=${2:-}; shift 2 ;;
     --message-token-file) MESSAGE_TOKEN_FILE=${2:-}; shift 2 ;;
+    --media-cert-file) MEDIA_CERT_FILE=${2:-}; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Error: unknown argument: $1" >&2; usage; exit 1 ;;
   esac
@@ -97,8 +99,10 @@ MESSAGE_TOKEN=$(tr -d '\r\n' < "$MESSAGE_TOKEN_FILE")
   { echo "Error: invalid object-detection object type." >&2; exit 1; }
 [[ $CAMERA_STREAM_ENABLED == true || $CAMERA_STREAM_ENABLED == false ]] ||
   { echo "Error: invalid camera-stream enabled value." >&2; exit 1; }
-[[ $CAMERA_STREAM_ENABLED == false || $CAMERA_STREAM_PUBLISH_URL =~ ^rtsp://[^[:space:]\'\"]+$ ]] ||
+[[ $CAMERA_STREAM_ENABLED == false || $CAMERA_STREAM_PUBLISH_URL =~ ^rtsps://[^[:space:]\'\"]+$ ]] ||
   { echo "Error: invalid camera-stream publish URL." >&2; exit 1; }
+[[ $CAMERA_STREAM_ENABLED == false || -r $MEDIA_CERT_FILE ]] ||
+  { echo "Error: a readable media-server certificate is required." >&2; exit 1; }
 [[ $CAMERA_STREAM_WIDTH =~ ^[0-9]+$ ]] && (( CAMERA_STREAM_WIDTH >= 320 )) &&
 [[ $CAMERA_STREAM_HEIGHT =~ ^[0-9]+$ ]] && (( CAMERA_STREAM_HEIGHT >= 240 )) &&
 [[ $CAMERA_STREAM_FPS =~ ^[0-9]+$ ]] && (( CAMERA_STREAM_FPS >= 1 && CAMERA_STREAM_FPS <= 60 )) &&
@@ -127,6 +131,8 @@ if [[ $EUID -ne 0 ]]; then
     --camera-stream-bitrate "$CAMERA_STREAM_BITRATE"
     --message-token-file "$MESSAGE_TOKEN_FILE"
   )
+  [[ $CAMERA_STREAM_ENABLED == false ]] ||
+    sudo_arguments+=(--media-cert-file "$MEDIA_CERT_FILE")
   exec sudo -- "${sudo_arguments[@]}"
 fi
 
@@ -229,6 +235,10 @@ cp "$SOURCE_DIR/shared/package.json" "$APP_DIR/node_modules/@pi-health/shared/pa
 chown -R "$SERVICE_USER:$SERVICE_USER" "$APP_DIR/node_modules/@pi-health/shared"
 
 install -d -o root -g "$SERVICE_USER" -m 0750 "$ENV_DIR"
+if [[ $CAMERA_STREAM_ENABLED == true ]]; then
+  install -o root -g "$SERVICE_USER" -m 0644 \
+    "$MEDIA_CERT_FILE" "$ENV_DIR/media-server.crt"
+fi
 {
   printf 'SERVER_URL=%s\n' "$SERVER_URL"
   printf 'DEVICE_ID=%s\n' "$DEVICE_ID"
@@ -248,6 +258,8 @@ install -d -o root -g "$SERVICE_USER" -m 0750 "$ENV_DIR"
   printf 'OBJECT_DETECTION_OBJECT_TYPE=%s\n' "$OBJECT_DETECTION_OBJECT_TYPE"
   printf 'CAMERA_STREAM_ENABLED=%s\n' "$CAMERA_STREAM_ENABLED"
   printf 'CAMERA_STREAM_PUBLISH_URL=%s\n' "$CAMERA_STREAM_PUBLISH_URL"
+  printf 'CAMERA_STREAM_USERNAME=pi-publisher\n'
+  printf 'CAMERA_STREAM_CA_FILE=%s/media-server.crt\n' "$ENV_DIR"
   printf 'CAMERA_STREAM_WIDTH=%s\n' "$CAMERA_STREAM_WIDTH"
   printf 'CAMERA_STREAM_HEIGHT=%s\n' "$CAMERA_STREAM_HEIGHT"
   printf 'CAMERA_STREAM_FPS=%s\n' "$CAMERA_STREAM_FPS"

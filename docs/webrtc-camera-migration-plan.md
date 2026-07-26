@@ -11,7 +11,7 @@ and pause/resume actions.
 
 ```text
 Pi 5 camera
-  ├─ rpicam-vid H.264 → FFmpeg RTSP publisher → Ubuntu MediaMTX → WebRTC browser
+  ├─ rpicam-vid H.264 → FFmpeg RTSPS publisher → Ubuntu MediaMTX → WebRTC browser
   ├─ camera.capture JPEG → encrypted Socket.IO response
   └─ detector JPEG/result → Ubuntu detector → encrypted status and box messages
 ```
@@ -26,9 +26,10 @@ media endpoint even when Pi addresses change.
    `camera.stream.stop`, and `camera.stream.status` commands to the Pi agent.
 2. Add a single-owner stream controller that launches baseline H.264 with
    `rpicam-vid`, pipes it to FFmpeg, publishes to a device-specific RTSP path,
-   reports failures, and reliably terminates both processes.
+   reports failures, validates the pinned gateway certificate, and reliably
+   terminates both processes.
 3. Install a pinned MediaMTX release and systemd service on Ubuntu. Expose RTSP
-   publishing on port 8554 and WebRTC playback/signalling on port 8889.
+   publishing on port 8322 and WebRTC playback/signalling on port 8889.
 4. Replace the interval-preview checkbox behavior with stream start/stop
    commands and an embedded WebRTC player.
 5. Preserve `camera.capture` as a bounded encrypted command. Stop and restore
@@ -49,7 +50,7 @@ Pi defaults:
 {
   "camera_stream": {
     "enabled": true,
-    "publish_url": "rtsp://ubuntu-host:8554/pipa1-camera",
+    "publish_url": "rtsps://ubuntu-host:8322/pipa1-camera",
     "width": 1280,
     "height": 720,
     "fps": 20,
@@ -75,15 +76,20 @@ the web application uses its current hostname with port 8889.
 
 ## Security
 
-- Publishing URLs remain in Pi deployment configuration and are not returned to
-  the browser.
+- The existing message token is the root credential. Pi publishers authenticate
+  over certificate-pinned RTSPS with a purpose-scoped HMAC derived from it, so
+  the root token is not placed in FFmpeg arguments or a browser URL.
+- A successful encrypted stream-start response carries a signed, path-bound
+  viewer token that expires after ten minutes.
+- The browser supplies that token in the WHEP authorization header. WebRTC media
+  is always encrypted with DTLS-SRTP.
 - Device IDs are restricted to safe path characters.
 - MediaMTX administrative APIs and unused media protocols remain disabled.
-- The first implementation is LAN-scoped and media paths are not independently
-  authenticated; host firewall rules must keep ports 8554, 8889, and 8189 off
-  untrusted networks.
-- A production/remote deployment requires per-device publishing credentials,
-  short-lived viewer authorization, TLS, and TURN.
+- MediaMTX delegates every publish/read decision to the dashboard over
+  localhost; direct anonymous reads and publishes are rejected.
+- WHEP signalling remains HTTP on the initial LAN deployment. The viewer token
+  is short-lived, but remote or untrusted-network deployment still requires
+  HTTPS signalling and TURN.
 
 ## Acceptance criteria
 

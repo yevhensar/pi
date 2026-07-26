@@ -31,6 +31,7 @@ SKIP_BUILD=false
 CHECK_CONFIG=false
 CONFIG_FILE=
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+MEDIA_CERT_FILE="$ROOT_DIR/config/media-server.crt"
 LOCAL_TMP=
 REMOTE_TMP=
 
@@ -176,10 +177,10 @@ fi
   { echo "Error: invalid camera_stream video settings." >&2; exit 1; }
 if [[ $CAMERA_STREAM_ENABLED == true && -z $CAMERA_STREAM_PUBLISH_URL ]]; then
   server_host=$(node -e 'console.log(new URL(process.argv[1]).hostname)' "$SERVER_URL")
-  CAMERA_STREAM_PUBLISH_URL="rtsp://$server_host:8554/$DEVICE_ID-camera"
+  CAMERA_STREAM_PUBLISH_URL="rtsps://$server_host:8322/$DEVICE_ID-camera"
 fi
-[[ $CAMERA_STREAM_ENABLED == false || $CAMERA_STREAM_PUBLISH_URL =~ ^rtsp://[^[:space:]\'\"]+$ ]] ||
-  { echo "Error: camera_stream.publish_url must be an RTSP URL." >&2; exit 1; }
+[[ $CAMERA_STREAM_ENABLED == false || $CAMERA_STREAM_PUBLISH_URL =~ ^rtsps://[^[:space:]\'\"]+$ ]] ||
+  { echo "Error: camera_stream.publish_url must be an RTSPS URL." >&2; exit 1; }
 
 if [[ $CHECK_CONFIG == true ]]; then
   echo "Configuration is valid."
@@ -192,11 +193,14 @@ if [[ $CHECK_CONFIG == true ]]; then
   echo "Flight controller: $([[ $FLIGHT_CONTROLLER_ENABLED == true ]] && echo "$FLIGHT_CONTROLLER_PROTOCOL on $FLIGHT_CONTROLLER_DEVICE at $FLIGHT_CONTROLLER_BAUD baud" || echo disabled)"
   echo "Motor test: $([[ $MOTOR_TEST_ENABLED == true ]] && echo "enabled ($MOTOR_TEST_OUTPUT for ${MOTOR_TEST_DURATION_MS}ms)" || echo disabled)"
   echo "Object detection frames: $([[ $OBJECT_DETECTION_ENABLED == true ]] && echo "$OBJECT_DETECTION_OBJECT_TYPE every ${OBJECT_DETECTION_INTERVAL_MS}ms" || echo disabled)"
-  echo "WebRTC source: $([[ $CAMERA_STREAM_ENABLED == true ]] && echo "${CAMERA_STREAM_WIDTH}x${CAMERA_STREAM_HEIGHT} at ${CAMERA_STREAM_FPS}fps → $CAMERA_STREAM_PUBLISH_URL" || echo disabled)"
+  echo "Encrypted WebRTC source: $([[ $CAMERA_STREAM_ENABLED == true ]] && echo "${CAMERA_STREAM_WIDTH}x${CAMERA_STREAM_HEIGHT} at ${CAMERA_STREAM_FPS}fps → configured RTSPS gateway" || echo disabled)"
   echo "SSH authentication: $([[ -n $SSH_PASSWORD ]] && echo password || echo keys/interactive)"
   echo "sudo authentication: $([[ -n $SUDO_PASSWORD ]] && echo configured || echo passwordless/interactive)"
   exit 0
 fi
+
+[[ $CAMERA_STREAM_ENABLED == false || -r $MEDIA_CERT_FILE ]] ||
+  { echo "Error: $MEDIA_CERT_FILE is missing; run deploy:server once to generate the pinned media certificate." >&2; exit 1; }
 
 SSH_COMMAND=(ssh -p "$SSH_PORT")
 SCP_COMMAND=(scp -P "$SSH_PORT")
@@ -242,6 +246,9 @@ cp shared/package.json "$LOCAL_TMP/bundle/shared/package.json"
 cp package-lock.json "$LOCAL_TMP/bundle/package-lock.json"
 cp scripts/install-pi.sh "$LOCAL_TMP/bundle/scripts/install-pi.sh"
 printf '%s\n' "$MESSAGE_TOKEN" > "$LOCAL_TMP/bundle/message-token"
+if [[ $CAMERA_STREAM_ENABLED == true ]]; then
+  cp "$MEDIA_CERT_FILE" "$LOCAL_TMP/bundle/media-server.crt"
+fi
 chmod 600 "$LOCAL_TMP/bundle/message-token"
 cp -a node_modules "$LOCAL_TMP/bundle/node_modules"
 tar -czf "$LOCAL_TMP/pi-health-agent.tar.gz" -C "$LOCAL_TMP/bundle" .
@@ -261,6 +268,9 @@ if [[ -n $SUDO_PASSWORD ]]; then
 fi
 INSTALL_COMMAND+=" '$REMOTE_TMP/scripts/install-pi.sh' --server-url '$SERVER_URL' --device-id '$DEVICE_ID' --source-dir '$REMOTE_TMP'"
 INSTALL_COMMAND+=" --message-token-file '$REMOTE_TMP/message-token'"
+if [[ $CAMERA_STREAM_ENABLED == true ]]; then
+  INSTALL_COMMAND+=" --media-cert-file '$REMOTE_TMP/media-server.crt'"
+fi
 if [[ -n $WIFI_INTERFACE ]]; then
   INSTALL_COMMAND+=" --wifi-interface '$WIFI_INTERFACE'"
 fi

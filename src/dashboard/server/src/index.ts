@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import express from "express";
 import { Server } from "socket.io";
 import type {
@@ -30,9 +31,101 @@ const io = new Server<ClientToServerEvents, ServerToSocketEvents>(httpServer, {
 const cipher = await createMessageCipher(config.messageToken);
 const devices = new DeviceStore();
 const detections = new Map<string, ObjectDetectionHealth>();
+const MEDIA_VIEW_TOKEN_TTL_SECONDS = 10 * 60;
+const mediaPublisherPassword = createHmac("sha256", config.messageToken)
+  .update("pi-health-media-publisher")
+  .digest("base64url");
 
 app.disable("x-powered-by");
 app.use(express.json());
+
+function mediaPathFor(deviceId: string): string {
+  return `${deviceId}-camera`;
+}
+
+function issueMediaViewToken(deviceId: string): string {
+  const payload = Buffer.from(JSON.stringify({
+    path: mediaPathFor(deviceId),
+    expiresAt: Math.floor(Date.now() / 1000) + MEDIA_VIEW_TOKEN_TTL_SECONDS
+  })).toString("base64url");
+  const signature = createHmac("sha256", config.messageToken)
+    .update(payload)
+    .digest("base64url");
+  return `${payload}.${signature}`;
+}
+
+function validMediaViewToken(token: string, pathName: string): boolean {
+  const [payload, providedSignature, extra] = token.split(".");
+  if (!payload || !providedSignature || extra) return false;
+  const expectedSignature = createHmac("sha256", config.messageToken)
+    .update(payload)
+    .digest();
+  let decodedSignature: Buffer;
+  try {
+    decodedSignature = Buffer.from(providedSignature, "base64url");
+  } catch {
+    return false;
+  }
+  if (
+    decodedSignature.length !== expectedSignature.length ||
+    !timingSafeEqual(decodedSignature, expectedSignature)
+  ) return false;
+  try {
+    const value = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
+      path?: unknown;
+      expiresAt?: unknown;
+    };
+    return (
+      value.path === pathName &&
+      typeof value.expiresAt === "number" &&
+      value.expiresAt >= Math.floor(Date.now() / 1000)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function secureStringEqual(left: unknown, right: string): boolean {
+  if (typeof left !== "string") return false;
+  const leftBytes = Buffer.from(left);
+  const rightBytes = Buffer.from(right);
+  return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
+}
+
+app.post("/api/media/auth", (request, response) => {
+  const remoteAddress = request.socket.remoteAddress;
+  if (
+    remoteAddress !== "127.0.0.1" &&
+    remoteAddress !== "::1" &&
+    remoteAddress !== "::ffff:127.0.0.1"
+  ) {
+    response.sendStatus(403);
+    return;
+  }
+  const authorization = request.body as {
+    user?: unknown;
+    password?: unknown;
+    token?: unknown;
+    action?: unknown;
+    path?: unknown;
+    protocol?: unknown;
+  };
+  const pathName = typeof authorization.path === "string" ? authorization.path : "";
+  const safeCameraPath = /^[A-Za-z0-9._-]+-camera$/.test(pathName);
+  const publishAllowed =
+    authorization.action === "publish" &&
+    authorization.protocol === "rtsp" &&
+    authorization.user === "pi-publisher" &&
+    secureStringEqual(authorization.password, mediaPublisherPassword) &&
+    safeCameraPath;
+  const readAllowed =
+    authorization.action === "read" &&
+    authorization.protocol === "webrtc" &&
+    typeof authorization.token === "string" &&
+    safeCameraPath &&
+    validMediaViewToken(authorization.token, pathName);
+  response.sendStatus(publishAllowed || readAllowed ? 204 : 401);
+});
 
 app.get("/api/health", async (_request, response) => {
   response.json(await cipher.encrypt(messageContexts.apiHealth, {
@@ -344,6 +437,13 @@ io.on("connection", (socket) => {
               objectPresent: false,
               count: 0,
               detections: []
+            });
+          }
+          if (request.command === "camera.stream.start" && result.success) {
+            const streamState = JSON.parse(result.output) as Record<string, unknown>;
+            result.output = JSON.stringify({
+              ...streamState,
+              viewerToken: issueMediaViewToken(request.deviceId)
             });
           }
           await reply(result);

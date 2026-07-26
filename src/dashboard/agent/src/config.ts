@@ -46,6 +46,8 @@ export const config = {
     process.env.OBJECT_DETECTION_OBJECT_TYPE?.trim() || "car",
   cameraStreamEnabled: process.env.CAMERA_STREAM_ENABLED !== "false",
   cameraStreamPublishUrl: process.env.CAMERA_STREAM_PUBLISH_URL?.trim() || "",
+  cameraStreamUsername: process.env.CAMERA_STREAM_USERNAME?.trim() || "pi-publisher",
+  cameraStreamCaFile: process.env.CAMERA_STREAM_CA_FILE?.trim() || "",
   cameraStreamExecutable: process.env.CAMERA_STREAM_EXECUTABLE?.trim() || "rpicam-vid",
   cameraStreamFfmpeg: process.env.CAMERA_STREAM_FFMPEG?.trim() || "ffmpeg",
   cameraStreamWidth: Number.parseInt(process.env.CAMERA_STREAM_WIDTH ?? "1280", 10),
@@ -67,8 +69,20 @@ if (
 ) {
   throw new Error("OBJECT_DETECTION_INTERVAL_MS must be at least 250");
 }
-if (config.cameraStreamEnabled && !/^rtsp:\/\/[^'"\s]+$/.test(config.cameraStreamPublishUrl)) {
-  throw new Error("CAMERA_STREAM_PUBLISH_URL must be a valid RTSP URL");
+if (
+  config.cameraStreamEnabled &&
+  !/^rtsps:\/\/[^'"\s]+$/.test(config.cameraStreamPublishUrl)
+) {
+  throw new Error("CAMERA_STREAM_PUBLISH_URL must be a valid RTSPS URL");
+}
+if (
+  config.cameraStreamEnabled &&
+  !/^[A-Za-z0-9._-]+$/.test(config.cameraStreamUsername)
+) {
+  throw new Error("Invalid camera stream publishing username");
+}
+if (config.cameraStreamEnabled && !config.cameraStreamCaFile.startsWith("/")) {
+  throw new Error("CAMERA_STREAM_CA_FILE must be an absolute certificate path");
 }
 if (
   !Number.isInteger(config.cameraStreamWidth) ||

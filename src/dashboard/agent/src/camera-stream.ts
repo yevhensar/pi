@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { createHmac } from "node:crypto";
 import { config } from "./config.js";
 
 export type CameraStreamState = {
@@ -13,6 +14,9 @@ export type CameraStreamState = {
 let cameraProcess: ChildProcess | undefined;
 let publisherProcess: ChildProcess | undefined;
 let state: CameraStreamState = baseState();
+const mediaPublisherPassword = createHmac("sha256", config.messageToken)
+  .update("pi-health-media-publisher")
+  .digest("base64url");
 
 function baseState(): CameraStreamState {
   return {
@@ -21,6 +25,19 @@ function baseState(): CameraStreamState {
     height: config.cameraStreamHeight,
     fps: config.cameraStreamFps
   };
+}
+
+function authenticatedPublishUrl(): string {
+  const url = new URL(config.cameraStreamPublishUrl);
+  url.username = config.cameraStreamUsername;
+  url.password = mediaPublisherPassword;
+  return url.toString();
+}
+
+function redactSecrets(value: string): string {
+  return value
+    .replaceAll(encodeURIComponent(mediaPublisherPassword), "[redacted]")
+    .replaceAll(mediaPublisherPassword, "[redacted]");
 }
 
 function stopChild(child: ChildProcess | undefined) {
@@ -78,7 +95,9 @@ export async function startCameraStream(): Promise<CameraStreamState> {
     "-c:v", "copy",
     "-f", "rtsp",
     "-rtsp_transport", "tcp",
-    config.cameraStreamPublishUrl
+    "-tls_verify", "1",
+    "-ca_file", config.cameraStreamCaFile,
+    authenticatedPublishUrl()
   ], { stdio: ["pipe", "ignore", "pipe"] });
 
   camera.stdout.pipe(publisher.stdin);
@@ -97,7 +116,7 @@ export async function startCameraStream(): Promise<CameraStreamState> {
     state = {
       ...baseState(),
       status: "error",
-      error: `${label} exited (${signal ?? code ?? "unknown"})${stderr.trim() ? `: ${stderr.trim()}` : ""}`
+      error: `${label} exited (${signal ?? code ?? "unknown"})${stderr.trim() ? `: ${redactSecrets(stderr.trim())}` : ""}`
     };
   };
   camera.once("exit", failed("rpicam-vid"));

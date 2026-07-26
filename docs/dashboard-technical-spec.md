@@ -672,11 +672,22 @@ server does not persist captured images.
 
 When **Live WebRTC video** is enabled, the browser sends
 `camera.stream.start`. The Pi runs `rpicam-vid` with a 1280-by-720 baseline
-H.264 profile and pipes it to an FFmpeg RTSP publisher. Ubuntu MediaMTX accepts
-the device-specific stream on port 8554 and exposes WebRTC playback on port
-8889. The browser embeds that playback endpoint; video bytes never pass through
-Socket.IO. Clearing the checkbox or leaving the device page sends
-`camera.stream.stop`.
+H.264 profile and pipes it to an FFmpeg RTSPS publisher. The agent authenticates
+with a purpose-scoped HMAC derived from the shared message token and validates
+the gateway's pinned self-signed certificate. The root token is therefore not
+placed in FFmpeg arguments. Ubuntu MediaMTX accepts the device-specific
+encrypted stream on port 8322 and exposes WebRTC/WHEP playback on port 8889.
+Video bytes never pass through Socket.IO. Clearing the checkbox or leaving the
+device page sends `camera.stream.stop`.
+
+MediaMTX delegates publish and read authorization to the dashboard's
+localhost-only `/api/media/auth` callback. Pi publishing uses the scoped HMAC
+as its password. A successful encrypted `camera.stream.start` response adds a
+ten-minute HMAC-signed viewer token bound to that device's media path.
+The browser supplies it as a WHEP bearer token through `fetch`; it is not placed
+in a URL. The WHEP session delivers media through WebRTC DTLS-SRTP encryption.
+Invalid, expired, cross-device, anonymous, and non-loopback authorization
+requests are rejected.
 
 One-shot capture remains an encrypted `camera.capture` command. If streaming is
 active, the agent stops the publisher, captures the JPEG after the camera is

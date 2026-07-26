@@ -8,3 +8,5 @@ __pycache__/
 .DS_Store
 config/*.json
 !config/*.example.json
+config/media-server.crt
+config/media-server.key

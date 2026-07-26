@@ -12,6 +12,7 @@ import type {
 import { createMessageCipher, messageContexts } from "@pi-health/shared";
 import type { DeviceState, DeviceStatus } from "./types";
 import { socket } from "./socket";
+import { WhepVideoSession } from "./webrtc";
 
 const STALE_AFTER_MS = 90_000;
 const TOKEN_STORAGE_KEY = "pi-health-message-token";
@@ -23,7 +24,51 @@ type CameraStreamState = {
   fps: number;
   startedAt?: string;
   error?: string;
+  viewerToken?: string;
 };
+
+function SecureWebRtcVideo({
+  url,
+  token,
+  onError
+}: {
+  url: string;
+  token: string;
+  onError: (error: string) => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    let stopped = false;
+    let session: WhepVideoSession | undefined;
+    let retryTimer: number | undefined;
+
+    const connect = async () => {
+      if (stopped || !videoRef.current) return;
+      session?.close();
+      session = new WhepVideoSession(url, token);
+      try {
+        await session.connect(videoRef.current, () => {
+          if (!stopped) retryTimer = window.setTimeout(() => void connect(), 2_000);
+        });
+        if (!stopped) onError("");
+      } catch (error) {
+        if (stopped) return;
+        onError(error instanceof Error ? error.message : "Secure WebRTC connection failed");
+        retryTimer = window.setTimeout(() => void connect(), 2_000);
+      }
+    };
+    void connect();
+    return () => {
+      stopped = true;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      session?.close();
+      if (videoRef.current) videoRef.current.srcObject = null;
+    };
+  }, [onError, token, url]);
+
+  return <video autoPlay muted playsInline ref={videoRef} />;
+}
 
 function statusFor(device: DeviceState, now: number): DeviceStatus {
   if (!device.socketConnected) return "offline";
@@ -813,7 +858,7 @@ function CameraPanel({
     : health?.status ?? (checking ? "checking" : "unknown");
   const detectionFrame = detection?.status === "paused" ? detection.frame : undefined;
   const displayedCapture = detectionFrame ?? capture;
-  const streamUrl = `${window.location.protocol}//${window.location.hostname}:8889/${encodeURIComponent(device.health.deviceId)}-camera/?controls=false&muted=true&autoplay=true&playsInline=true`;
+  const streamUrl = `${window.location.protocol}//${window.location.hostname}:8889/${encodeURIComponent(device.health.deviceId)}-camera/whep`;
 
   return (
     <section className="detail-panel camera-panel">
@@ -915,11 +960,15 @@ function CameraPanel({
           {liveView ? (
             <>
               <div className="camera-video-stage">
-                <iframe
-                  allow="autoplay; fullscreen; picture-in-picture"
-                  src={streamUrl}
-                  title={`Live camera from ${device.health.deviceId}`}
-                />
+                {stream?.viewerToken ? (
+                  <SecureWebRtcVideo
+                    onError={setStreamError}
+                    token={stream.viewerToken}
+                    url={streamUrl}
+                  />
+                ) : (
+                  <div className="camera-stream-connecting">Authorizing secure video…</div>
+                )}
                 {detection?.detections.map((item, index) => (
                   <div
                     className="detection-box"
