@@ -1,0 +1,20 @@
+{
+  "server_url": "http://10.0.0.145:3000",
+  "ssh_user": "sarjick",
+  "ssh_password": "romaroza",
+  "sudo_password": "romaroza",
+  "ssh_port": 22,
+  "wifi_interface": "wlan0",
+  "object_detection": {
+    "enabled": true,
+    "interval_ms": 1000,
+    "object_type": "car"
+  },
+  "clients": [
+    {
+      "host": "pipa1.local",
+      "role": "client",
+      "client_id": "pipa1"
+    }
+  ]
+}

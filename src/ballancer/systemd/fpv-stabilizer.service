@@ -1,0 +1,22 @@
+[Unit]
+Description=FPV companion stabilizer (dry run)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=fpv-stabilizer
+Group=fpv-stabilizer
+SupplementaryGroups=dialout
+WorkingDirectory=/opt/fpv-stabilizer
+ExecStart=/opt/fpv-stabilizer/.venv/bin/fpv-stabilizer --config /etc/fpv-stabilizer/config.yaml --dry-run
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/log/fpv-stabilizer
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,22 @@
+{
+  "ssh_user": "pi",
+  "ssh_password": "",
+  "sudo_password": "",
+  "ssh_port": 22,
+  "flight_controller": {
+    "enabled": true,
+    "device": "auto",
+    "protocol": "msp",
+    "baud": 115200
+  },
+  "ballancer": {
+    "replace_config": false
+  },
+  "clients": [
+    {
+      "host": "192.168.1.60",
+      "role": "client",
+      "client_id": "pi-5-01"
+    }
+  ]
+}

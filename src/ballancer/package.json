@@ -1,0 +1,22 @@
+{
+  "name": "fpv-ballancer",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "bash scripts/build.sh",
+    "build:check": "bash scripts/build.sh --check",
+    "start": "bash scripts/start.sh",
+    "stop": "bash scripts/stop.sh",
+    "start:check": "bash scripts/start.sh --check-config",
+    "stop:check": "bash scripts/stop.sh --check-config",
+    "start:local": "bash scripts/start-local.sh",
+    "stop:local": "bash scripts/stop-local.sh",
+    "install:pi": "bash scripts/install-pi.sh",
+    "deploy:client": "bash scripts/deploy-to-pi.sh",
+    "deploy:fleet": "bash scripts/deploy-fleet.sh --config config/pi-fleet.json",
+    "deploy:fleet:check": "bash scripts/deploy-fleet.sh --config config/pi-fleet.json --check-config",
+    "test": ".venv/bin/pytest -q",
+    "typecheck": ".venv/bin/mypy fpv_stabilizer",
+    "lint": ".venv/bin/ruff check fpv_stabilizer tests"
+  }
+}

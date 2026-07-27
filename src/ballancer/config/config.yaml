@@ -1,0 +1,49 @@
+serial:
+  port: auto
+  baudrate: 115200
+  timeout_s: 0.5
+
+control:
+  loop_hz: 20
+  mode: VELOCITY_HOLD
+
+# Conservative placeholders for simulation and dry-run only. These are
+# outer-loop gains, not Betaflight PID values. Do not enable aircraft output
+# before recording dry-run data and validating every sign on a prop-free bench.
+velocity_hold:
+  north:
+    kp: 0.03
+    ki: 0.0
+    kd: 0.0
+    output_min: -0.05
+    output_max: 0.05
+    integral_limit: 0.1
+    derivative_filter: 0.2
+  east:
+    kp: 0.03
+    ki: 0.0
+    kd: 0.0
+    output_min: -0.05
+    output_max: 0.05
+    integral_limit: 0.1
+    derivative_filter: 0.2
+
+safety:
+  telemetry_timeout_ms: 200
+  command_timeout_ms: 200
+
+pilot_override:
+  # Zero-based within AUX channels: 0 means AUX1 / MSP RC channel 5.
+  aux_channel_index: 0
+  # Normalized AUX threshold. +0.4 corresponds to approximately 1700 us.
+  enabled_threshold: 0.4
+  full_below: 0.10
+  zero_above: 0.50
+
+output:
+  # This only unlocks --bench-output. The adapter still refuses output while
+  # Betaflight is armed.
+  allow_disarmed_output: false
+
+logging:
+  csv_path: var/flight.csv
