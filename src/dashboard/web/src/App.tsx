@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   CameraCapture,
   CameraHealth,
-  DeviceCommandName,
   DeviceCommandResult,
   DeviceState as SharedDeviceState,
   EncryptedEnvelope,
@@ -10,6 +9,12 @@ import type {
   ObjectDetectionHealth
 } from "@pi-health/shared";
 import { createMessageCipher, messageContexts } from "@pi-health/shared";
+import { LiveTelemetry } from "./components/LiveTelemetry";
+import {
+  commandOptions,
+  RemoteDiagnostics,
+  useRemoteDiagnostics
+} from "./components/RemoteDiagnostics";
 import type { DeviceState, DeviceStatus } from "./types";
 import { socket } from "./socket";
 import { WhepVideoSession } from "./webrtc";
@@ -162,30 +167,6 @@ function TokenGate({
     </main>
   );
 }
-
-const commandOptions: {
-  command: DeviceCommandName;
-  label: string;
-  description: string;
-  kind?: "motor-start" | "motor-stop";
-}[] = [
-  { command: "system.info", label: "System info", description: "Kernel, OS, and architecture" },
-  { command: "disk.usage", label: "Disk usage", description: "Mounted filesystem capacity" },
-  { command: "network.interfaces", label: "Network", description: "Interface and address status" },
-  { command: "processes.top", label: "Top processes", description: "Processes ranked by CPU use" },
-  {
-    command: "flight-controller.motor-test.start",
-    label: "Start motor test",
-    description: "Fixed low output with an automatic 3-second maximum cutoff",
-    kind: "motor-start"
-  },
-  {
-    command: "flight-controller.motor-test.stop",
-    label: "Stop motor test",
-    description: "Reset all detected Betaflight motor-test outputs to minimum",
-    kind: "motor-stop"
-  }
-];
 
 function DeviceCard({
   device,
@@ -1065,8 +1046,7 @@ function DeviceDetail({
   now: number;
   onBack: () => void;
 }) {
-  const [pending, setPending] = useState<DeviceCommandName | null>(null);
-  const [results, setResults] = useState<DeviceCommandResult[]>([]);
+  const diagnostics = useRemoteDiagnostics(device, cipher);
 
   if (!device) {
     return (
@@ -1081,74 +1061,6 @@ function DeviceDetail({
   }
 
   const status = statusFor(device, now);
-  const usedMemory = device.health.totalMemoryBytes - device.health.freeMemoryBytes;
-  const memoryPercent = Math.round((usedMemory / device.health.totalMemoryBytes) * 100);
-  const controller = device.health.flightController;
-  const motorStartReady =
-    status !== "offline" &&
-    controller?.vehicleConnected === true &&
-    controller.protocol === "msp" &&
-    controller.armed === false &&
-    controller.motorTestEnabled === true;
-  const motorStopReady =
-    status !== "offline" &&
-    controller?.vehicleConnected === true &&
-    controller.protocol === "msp" &&
-    controller.armed === false;
-
-  async function runCommand(command: DeviceCommandName) {
-    if (!device || pending) return;
-    if (
-      command === "flight-controller.motor-test.start" &&
-      !window.confirm(
-        "Remove all propellers and clear the area before continuing.\n\n" +
-        "This will command every detected motor at low output. The Pi will " +
-        "automatically return output to minimum after the configured duration.\n\n" +
-        "Continue with the motor test?"
-      )
-    ) {
-      return;
-    }
-    setPending(command);
-    const requestId = crypto.randomUUID();
-    const encryptedRequest = await cipher.encrypt(messageContexts.browserCommand, {
-      requestId,
-      deviceId: device.health.deviceId,
-      command
-    });
-    socket.timeout(17_000).emit(
-      "device:command",
-      encryptedRequest,
-      async (error: Error | null, message?: EncryptedEnvelope) => {
-        setPending(null);
-        const timestamp = new Date().toISOString();
-        let result: DeviceCommandResult | undefined;
-        let decryptionError: string | undefined;
-        try {
-          if (message) {
-            result = await cipher.decrypt<DeviceCommandResult>(
-              messageContexts.browserCommandResult,
-              message
-            );
-          }
-        } catch (failure) {
-          decryptionError =
-            failure instanceof Error ? failure.message : "Encrypted response rejected";
-        }
-        const completed: DeviceCommandResult = result ?? {
-          requestId,
-          deviceId: device.health.deviceId,
-          command,
-          success: false,
-          output: "",
-          startedAt: timestamp,
-          completedAt: timestamp,
-          error: decryptionError ?? error?.message ?? "Server did not answer"
-        };
-        setResults((current) => [completed, ...current].slice(0, 10));
-      }
-    );
-  }
 
   return (
     <section className="detail-shell">
@@ -1164,92 +1076,14 @@ function DeviceDetail({
       </div>
 
       <div className="detail-grid">
-        <section className="detail-panel">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">Live telemetry</p>
-              <h2>System health</h2>
-            </div>
-            <span>{timeAgo(device.receivedAt, now)}</span>
-          </div>
-          <div className="detail-metrics">
-            <div><span>Uptime</span><strong>{duration(device.health.uptimeSeconds)}</strong></div>
-            <div><span>Memory used</span><strong>{memoryPercent}%</strong></div>
-            <div><span>Free memory</span><strong>{bytes(device.health.freeMemoryBytes)}</strong></div>
-            <div><span>Agent version</span><strong>v{device.health.appVersion}</strong></div>
-          </div>
-          <div className="metric detail-memory">
-            <div className="metric-label">
-              <span>Memory</span>
-              <strong>{bytes(usedMemory)} / {bytes(device.health.totalMemoryBytes)}</strong>
-            </div>
-            <div className="progress"><span style={{ width: `${memoryPercent}%` }} /></div>
-          </div>
-          <div className="detail-list">
-            <div>
-              <span>CPU load averages</span>
-              <strong>{device.health.loadAverage.map((load) => load.toFixed(2)).join(" · ")}</strong>
-            </div>
-            <div>
-              <span>IP addresses</span>
-              <strong>{device.health.ipAddresses.join(", ") || "None reported"}</strong>
-            </div>
-            <div>
-              <span>Last agent sample</span>
-              <strong>{shortTime(device.health.timestamp)}</strong>
-            </div>
-            <div>
-              <span>Server received</span>
-              <strong>{shortTime(device.receivedAt)}</strong>
-            </div>
-          </div>
-        </section>
+        <LiveTelemetry device={device} now={now} />
 
-        <section className="detail-panel">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">Remote diagnostics</p>
-              <h2>Send a command</h2>
-            </div>
-            <span>Allowlisted</span>
-          </div>
-          <p className="panel-copy">
-            Commands run on this Pi through its agent and return their output here.
-          </p>
-          {controller?.protocol === "msp" && !motorStartReady && (
-            <div className="motor-lock">
-              <strong>Motor test locked</strong>
-              <span>
-                {controller.armed
-                  ? "Disarm the flight controller before testing."
-                  : controller.motorTestEnabled !== true
-                  ? "Enable flight_controller.motor_test in the client config, then redeploy."
-                  : "The Betaflight connection must be online and report a disarmed state."}
-              </span>
-            </div>
-          )}
-          <div className="command-grid">
-            {commandOptions.map((option) => {
-              const motorDisabled =
-                option.kind === "motor-start"
-                  ? !motorStartReady
-                  : option.kind === "motor-stop"
-                  ? !motorStopReady
-                  : false;
-              return (
-                <button
-                  className={option.kind ?? ""}
-                  key={option.command}
-                  disabled={status === "offline" || pending !== null || motorDisabled}
-                  onClick={() => runCommand(option.command)}
-                >
-                  <span>{pending === option.command ? "Running…" : option.label}</span>
-                  <small>{option.description}</small>
-                </button>
-              );
-            })}
-          </div>
-        </section>
+        <RemoteDiagnostics
+          device={device}
+          pending={diagnostics.pending}
+          runCommand={diagnostics.runCommand}
+          status={status}
+        />
       </div>
 
       <FlightControllerPanel device={device} />
@@ -1262,11 +1096,13 @@ function DeviceDetail({
             <p className="eyebrow">Responses</p>
             <h2>Command history</h2>
           </div>
-          {results.length > 0 && <button onClick={() => setResults([])}>Clear</button>}
+          {diagnostics.results.length > 0 && (
+            <button onClick={diagnostics.clearResults}>Clear</button>
+          )}
         </div>
-        {results.length === 0 ? (
+        {diagnostics.results.length === 0 ? (
           <div className="console-empty">Run a diagnostic command to see its response.</div>
-        ) : results.map((result) => (
+        ) : diagnostics.results.map((result) => (
           <article className="command-result" key={result.requestId}>
             <header>
               <strong>{commandOptions.find((item) => item.command === result.command)?.label}</strong>
