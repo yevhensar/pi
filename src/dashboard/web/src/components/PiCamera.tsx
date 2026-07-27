@@ -10,6 +10,7 @@ import type {
 import { messageContexts } from "@pi-health/shared";
 import { socket } from "../socket";
 import type { DeviceState } from "../types";
+import { bytes, shortTime } from "../utils";
 import { WhepVideoSession } from "../webrtc";
 
 type CameraStreamState = {
@@ -65,23 +66,6 @@ function SecureWebRtcVideo({
   return <video autoPlay muted playsInline ref={videoRef} />;
 }
 
-
-function bytes(value: number): string {
-  if (value === 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const unit = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
-  return `${(value / 1024 ** unit).toFixed(unit > 2 ? 1 : 0)} ${units[unit]}`;
-}
-
-function shortTime(date: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit"
-  }).format(new Date(date));
-}
 
 export function PiCamera({
   device,
@@ -528,4 +512,3 @@ export function PiCamera({
     </section>
   );
 }
-

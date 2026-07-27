@@ -7,6 +7,7 @@ import type {
 import { messageContexts } from "@pi-health/shared";
 import { socket } from "../socket";
 import type { DeviceState } from "../types";
+import { shortTime } from "../utils";
 
 type AttitudeSample = {
   rollDeg: number;
@@ -14,16 +15,6 @@ type AttitudeSample = {
   headingDeg?: number;
   sampledAt: string;
 };
-
-function shortTime(date: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit"
-  }).format(new Date(date));
-}
 
 export function HorizonBalance({
   device,

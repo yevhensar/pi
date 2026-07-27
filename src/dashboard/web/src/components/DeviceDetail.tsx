@@ -7,24 +7,8 @@ import {
   RemoteDiagnostics,
   useRemoteDiagnostics
 } from "./RemoteDiagnostics";
-import type { DeviceState, DeviceStatus } from "../types";
-
-const STALE_AFTER_MS = 90_000;
-
-function statusFor(device: DeviceState, now: number): DeviceStatus {
-  if (!device.socketConnected) return "offline";
-  return now - Date.parse(device.receivedAt) > STALE_AFTER_MS ? "stale" : "online";
-}
-
-function shortTime(date: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit"
-  }).format(new Date(date));
-}
+import type { DeviceState } from "../types";
+import { shortTime, statusFor } from "../utils";
 
 function FlightControllerPanel({ device }: { device: DeviceState }) {
   const controller = device.health.flightController;
@@ -260,4 +244,3 @@ export function DeviceDetail({
     </section>
   );
 }
-
