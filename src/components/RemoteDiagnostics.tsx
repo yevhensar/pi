@@ -6,7 +6,7 @@ import type {
   MessageCipher
 } from "@pi-health/shared";
 import { messageContexts } from "@pi-health/shared";
-import { socket } from "../socket";
+import { socket } from "../dashboard/web/src/socket";
 import type { DeviceState, DeviceStatus } from "../types";
 
 export const commandOptions: {

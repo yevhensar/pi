@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "build": "bash scripts/build.sh",
+    "build:web": "vite build",
+    "dev:web": "vite",
     "build:check": "bash scripts/build.sh --check",
     "start": "bash scripts/start.sh",
     "stop": "bash scripts/stop.sh",
@@ -18,5 +20,16 @@
     "test": ".venv/bin/pytest -q",
     "typecheck": ".venv/bin/mypy fpv_stabilizer",
     "lint": ".venv/bin/ruff check fpv_stabilizer tests"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.0.2",
+    "vite": "^7.1.3",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "typescript": "^5.9.2"
   }
 }

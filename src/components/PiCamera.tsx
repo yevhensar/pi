@@ -8,10 +8,10 @@ import type {
   ObjectDetectionHealth
 } from "@pi-health/shared";
 import { messageContexts } from "@pi-health/shared";
-import { socket } from "../socket";
+import { socket } from "../dashboard/web/src/socket";
 import type { DeviceState } from "../types";
 import { bytes, shortTime } from "../utils";
-import { WhepVideoSession } from "../webrtc";
+import { WhepVideoSession } from "../dashboard/web/src/webrtc";
 
 type CameraStreamState = {
   status: "disabled" | "stopped" | "starting" | "live" | "error";

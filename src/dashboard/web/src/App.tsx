@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import type { MessageCipher } from "@pi-health/shared";
 import { createMessageCipher } from "@pi-health/shared";
-import { DeviceCard } from "./components/DeviceCard";
-import { DeviceDetail } from "./components/DeviceDetail";
-import { TokenGate } from "./components/TokenGate";
+import { DeviceCard } from "../../../components/DeviceCard";
+import { DeviceDetail } from "../../../components/DeviceDetail";
+import { TokenGate } from "../../../components/TokenGate";
 import { useDeviceSocket } from "./hooks/useDeviceSocket";
-import type { DeviceState } from "./types";
-import { shortTime, statusFor } from "./utils";
+import type { DeviceState } from "../../../types";
+import { shortTime, statusFor } from "../../../utils";
 import { socket } from "./socket";
 
 const TOKEN_STORAGE_KEY = "pi-health-message-token";

@@ -5,9 +5,10 @@ import type {
   MessageCipher
 } from "@pi-health/shared";
 import { messageContexts } from "@pi-health/shared";
-import { socket } from "../socket";
+import { socket } from "../dashboard/web/src/socket";
 import type { DeviceState } from "../types";
 import { shortTime } from "../utils";
+import { ArtificialHorizon } from "./ArtificialHorizon";
 
 type AttitudeSample = {
   rollDeg: number;
@@ -108,11 +109,6 @@ export function HorizonBalance({
     };
   }, [cipher, device.health.deviceId, supported]);
 
-  const roll = Math.max(-180, Math.min(180, sample?.rollDeg ?? 0));
-  const pitch = Math.max(-90, Math.min(90, sample?.pitchDeg ?? 0));
-  const balanceMagnitude = Math.hypot(roll, pitch);
-  const level = balanceMagnitude <= 2;
-
   return (
     <section className="detail-panel horizon-panel">
       <div className="panel-heading horizon-heading">
@@ -126,48 +122,12 @@ export function HorizonBalance({
         </span>
       </div>
 
-      <div className="horizon-layout">
-        <div
-          className="artificial-horizon"
-          aria-label={`Roll ${roll.toFixed(1)} degrees, pitch ${pitch.toFixed(1)} degrees`}
-          role="img"
-        >
-          <div
-            className="horizon-world"
-            style={{ transform: `translateY(${pitch * 2}px) rotate(${-roll}deg)` }}
-          >
-            <div className="horizon-sky" />
-            <div className="horizon-line" />
-            <div className="horizon-ground" />
-          </div>
-          <div className="pitch-mark pitch-mark-up"><span>10</span></div>
-          <div className="pitch-mark pitch-mark-center" />
-          <div className="pitch-mark pitch-mark-down"><span>10</span></div>
-          <div className="aircraft-reference"><i /><b /><i /></div>
-          <div className="roll-pointer">▼</div>
-        </div>
-
-        <div className="attitude-readout">
-          <div>
-            <span>Roll</span>
-            <strong>{sample ? `${roll.toFixed(1)}°` : "—"}</strong>
-          </div>
-          <div>
-            <span>Pitch</span>
-            <strong>{sample ? `${pitch.toFixed(1)}°` : "—"}</strong>
-          </div>
-          <div>
-            <span>Level state</span>
-            <strong className={level && sample ? "is-level" : ""}>
-              {!sample ? "Waiting" : level ? "Level" : "Offset"}
-            </strong>
-          </div>
-          <div>
-            <span>Sample</span>
-            <strong>{sample ? shortTime(sample.sampledAt) : "No sample"}</strong>
-          </div>
-        </div>
-      </div>
+      <ArtificialHorizon
+        hasSample={sample !== null}
+        pitchDeg={sample?.pitchDeg ?? 0}
+        rollDeg={sample?.rollDeg ?? 0}
+        sampleLabel={sample ? shortTime(sample.sampledAt) : undefined}
+      />
 
       <p className="horizon-note">
         {error

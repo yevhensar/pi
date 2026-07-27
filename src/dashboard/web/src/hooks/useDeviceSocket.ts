@@ -7,7 +7,7 @@ import type {
 } from "@pi-health/shared";
 import { messageContexts } from "@pi-health/shared";
 import { socket } from "../socket";
-import type { DeviceState } from "../types";
+import type { DeviceState } from "../../../../types";
 
 type DeviceSocketSetters = {
   setCipher: Dispatch<SetStateAction<MessageCipher | null>>;
